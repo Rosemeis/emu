@@ -15,9 +15,11 @@ from scipy.sparse.linalg import svds
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="FlashPCAngsd")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.1")
-parser.add_argument("-i", metavar="FILE",
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.15")
+parser.add_argument("-npy", metavar="FILE",
 	help="Input file (.npy)")
+parser.add_argument("-plink", metavar="PREFIX",
+	help="Prefix for binary PLINK files")
 parser.add_argument("-e", metavar="INT", type=int,
 	help="Number of eigenvectors to use")
 parser.add_argument("-m", metavar="INT", type=int, default=100,
@@ -35,6 +37,34 @@ args = parser.parse_args()
 
 
 ### Functions ###
+def convertPlink(G, t=1):
+	n, m = G.shape # Dimensions
+	D = np.empty((n, m), dtype=np.int8) # Container for single-read matrix
+
+	# Multithreading parameters
+	chunk_N = int(np.ceil(float(n)/t))
+	chunks = [i * chunk_N for i in xrange(t)]
+
+	# Multithreading
+	threads = [threading.Thread(target=convertPlink_inner, args=(G, D, chunk, chunk_N)) for chunk in chunks]
+	for thread in threads:
+		thread.start()
+	for thread in threads:
+		thread.join()
+
+	return D
+
+# Inner function for converting PLINK files to D matrix
+@jit("void(f4[:, :], i1[:, :], i8, i8)", nopython=True, nogil=True, cache=True)
+def convertPlink_inner(G, D, S, N):
+	n, m = D.shape # Dimensions
+	for i in xrange(S, min(S+N, n)):
+		for j in xrange(m):
+			if np.isnan(G[i, j]): # Missing value
+				D[i, j] = -9
+			else:
+				D[i, j] = int(G[i, j])
+
 # Estimate population allele frequencies
 def estimateF(D, t=1):
 	n, m = D.shape
@@ -129,6 +159,44 @@ def updateE(D, Pi, S, N, E):
 			else:
 				E[i, j] = D[i, j]
 
+# Iteration for estimation of individual allele frequencies
+def computeSVD_E(D, E, f, e, chunks, chunk_N):
+	# Multithreading - Centering dosages
+	threads = [threading.Thread(target=centerE, args=(E, f, chunk, chunk_N)) for chunk in chunks]
+	for thread in threads:
+		thread.start()
+	for thread in threads:
+		thread.join()
+
+	# Reduced SVD of rank K (Scipy library)
+	W, s, U = svds(E, k=e)
+
+	# Multithreading - Estimate Pi
+	threads = [threading.Thread(target=updateE_SVD, args=(D, E, f, W, s, U, chunk, chunk_N)) for chunk in chunks]
+	for thread in threads:
+		thread.start()
+	for thread in threads:
+		thread.join()
+
+	return W
+
+# Update E directly from SVD
+@jit("void(i1[:, :], f4[:, :], f4[:], f4[:, :], f4[:], f4[:, :], i8, i8)", nopython=True, nogil=True, cache=True)
+def updateE_SVD(D, E, f, W, s, U, S, N):
+	n, m = E.shape # Dimensions
+	K = s.shape[0]
+	for i in xrange(S, min(S+N, n)):
+		for j in xrange(m):
+			if D[i, j] == -9: # Missing site
+				E[i, j] = 0.0
+				for k in xrange(K):
+					E[i, j] += W[i, k]*s[k]*U[k, j]
+				E[i, j] += f[j]
+				E[i, j] = max(E[i, j], 1e-4)
+				E[i, j] = min(E[i, j], 1-(1e-4))
+			else:
+				E[i, j] = D[i, j]
+
 # Standardize dosages prior to final SVD - (E - f)/sqrt(f*(1-f))
 @jit("void(f4[:, :], f4[:], i8, i8)", nopython=True, nogil=True, cache=True)
 def standardizeE(E, f, S, N):
@@ -180,7 +248,7 @@ def rmse_inner(A, B, S, N, R):
 
 
 ### Main function ###
-def flashPCAngsd(D, f, e, M=100, M_tole=1e-5, t=1):
+def flashPCAngsd(D, f, e, indf_save, cov_save, M=100, M_tole=1e-5, t=1):
 	n, m = D.shape # Dimensions
 	E = np.empty((n, m), dtype=np.float32) # Initiate E
 
@@ -195,35 +263,43 @@ def flashPCAngsd(D, f, e, M=100, M_tole=1e-5, t=1):
 	for thread in threads:
 		thread.join()
 
-	if M < 2:
+	if M < 1:
 		print "Missingess not taken into account!"
 
 		# Estimate approximate covariance matrix based on reconstruction
 		print "Inferring set of eigenvectors."
 		V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
 
-		# Estimate approximate covariance matrix
-		print "Approximating covariance matrix.\n"
-		C = np.dot(V*Sigma, V.T)
-	
+		if cov_save:
+			# Estimate approximate covariance matrix
+			print "Approximating covariance matrix.\n"
+			C = np.dot(V*Sigma, V.T)
+		else:
+			C = None
 		return V, C, None
 	else:
 		# Estimate initial individual allele frequencies
-		Pi, W = computeSVD(E, f, e, chunks, chunk_N)
+		if indf_save:
+			Pi, W = computeSVD(E, f, e, chunks, chunk_N)
+		else:
+			W = computeSVD_E(D, E, f, e, chunks, chunk_N)
 		prevW = np.copy(W)
 		print "Individual allele frequencies estimated (1)"
 		
 		# Iterative estimation of individual allele frequencies
 		for iteration in xrange(2, M+1):
-			# Multithreading
-			threads = [threading.Thread(target=updateE, args=(D, Pi, chunk, chunk_N, E)) for chunk in chunks]
-			for thread in threads:
-				thread.start()
-			for thread in threads:
-				thread.join()
+			if indf_save:
+				# Multithreading
+				threads = [threading.Thread(target=updateE, args=(D, Pi, chunk, chunk_N, E)) for chunk in chunks]
+				for thread in threads:
+					thread.start()
+				for thread in threads:
+					thread.join()
 
-			# Estimate individual allele frequencies
-			Pi, W = computeSVD(E, f, e, chunks, chunk_N)
+				# Estimate individual allele frequencies
+				Pi, W = computeSVD(E, f, e, chunks, chunk_N)
+			else:
+				W = computeSVD_E(D, E, f, e, chunks, chunk_N)
 
 			# Break iterative update if converged
 			diff = rmse(W, prevW, chunks, chunk_N)
@@ -235,30 +311,54 @@ def flashPCAngsd(D, f, e, M=100, M_tole=1e-5, t=1):
 
 		del W, prevW
 
-		# Multithreading
-		threads = [threading.Thread(target=updateE, args=(D, Pi, chunk, chunk_N, E)) for chunk in chunks]
-		for thread in threads:
-			thread.start()
-		for thread in threads:
-			thread.join()
+		if indf_save:
+			# Multithreading
+			threads = [threading.Thread(target=updateE, args=(D, Pi, chunk, chunk_N, E)) for chunk in chunks]
+			for thread in threads:
+				thread.start()
+			for thread in threads:
+				thread.join()
+		else:
+			Pi = None
 
 		# Estimate approximate covariance matrix based on reconstruction
 		print "Inferring final set of eigenvectors."
 		V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
 
-		# Estimate approximate covariance matrix
-		print "Approximating covariance matrix.\n"
-		C = np.dot(V*Sigma, V.T)
+		if cov_save:
+			# Estimate approximate covariance matrix
+			print "Approximating covariance matrix.\n"
+			C = np.dot(V*Sigma, V.T)
+		else:
+			C = None
 	
 		return V, C, Pi
 
 
 ### Caller ###
-print "FlashPCAngsd Alpha 0.1\n"
+print "FlashPCAngsd Alpha 0.15\n"
 
 # Read in single-read matrix
-print "Reading in single-read sampling matrix."
-D = np.load(args.i).astype(np.int8, copy=False)
+if args.npy is not None:
+	print "Reading in single-read sampling matrix from binary NumPy file."
+	# Read from binary NumPy file. Expects np.int8 data format
+	D = np.load(args.npy)
+	assert D.dtype == np.int8, "NumPy array must be of 8-bit integer format (np.int8)!"
+elif args.plink is not None:
+	print "Reading PLINK files and converting to single-read sampling matrix."
+	# Read from binary PLINK files
+	from pysnptools.snpreader import Bed
+	import warnings
+	warnings.simplefilter(action='ignore', category=FutureWarning)
+	readPlink = Bed(args.plink, count_A1=True).read(dtype=np.float32).val
+	n, m = readPlink.shape
+
+	# Construct single-read matrix from PLINK files
+	D = convertPlink(readPlink, args.t)
+	del readPlink
+else:
+	assert False, "No input file!"
+
 n, m = D.shape
 
 # Multithreading parameters
@@ -279,7 +379,7 @@ print str(n) + " samples, " + str(m) + " sites.\n"
 
 # FlashPCAngsd
 print "Performing FlashPCAngsd."
-V, C, Pi = flashPCAngsd(D, f, args.e, args.m, args.m_tole, args.t)
+V, C, Pi = flashPCAngsd(D, f, args.e, args.indf_save, args.cov_save, args.m, args.m_tole, args.t)
 
 print "Saving eigenvectors as " + args.o + ".eigenvecs.npy (Binary)."
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
