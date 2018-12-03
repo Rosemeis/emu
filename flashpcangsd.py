@@ -15,7 +15,7 @@ from scipy.sparse.linalg import svds
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="FlashPCAngsd")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.15")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.16")
 parser.add_argument("-npy", metavar="FILE",
 	help="Input file (.npy)")
 parser.add_argument("-plink", metavar="PREFIX",
@@ -28,10 +28,16 @@ parser.add_argument("-m_tole", metavar="FLOAT", type=float, default=1e-5,
 	help="Tolerance for update in estimation of individual allele frequencies (1e-5)")
 parser.add_argument("-t", metavar="INT", type=int, default=1,
 	help="Number of threads")
+parser.add_argument("-maf", metavar="FLOAT", type=float, default=0.05,
+	help="Threshold for minor allele frequencies")
+parser.add_argument("-cov_e", metavar="INT", type=int,
+	help="Number of eigenvectors to use for covariance matrix only")
 parser.add_argument("-cov_save", action="store_true",
 	help="Save estimated covariance matrix (Binary)")
+parser.add_argument("-maf_save", action="store_true",
+	help="Save estimated population allele frequencies")
 parser.add_argument("-indf_save", action="store_true",
-	help="Save estimated allele frequencies (Binary)")
+	help="Save estimated individual allele frequencies (Binary)")
 parser.add_argument("-o", metavar="OUTPUT", help="Prefix output file name", default="flash")
 args = parser.parse_args()
 
@@ -248,7 +254,7 @@ def rmse_inner(A, B, S, N, R):
 
 
 ### Main function ###
-def flashPCAngsd(D, f, e, indf_save, cov_save, M=100, M_tole=1e-5, t=1):
+def flashPCAngsd(D, f, e, indf_save, cov_save, cov_e, M=100, M_tole=1e-5, t=1):
 	n, m = D.shape # Dimensions
 	E = np.empty((n, m), dtype=np.float32) # Initiate E
 
@@ -266,15 +272,21 @@ def flashPCAngsd(D, f, e, indf_save, cov_save, M=100, M_tole=1e-5, t=1):
 	if M < 1:
 		print "Missingess not taken into account!"
 
-		# Estimate approximate covariance matrix based on reconstruction
+		# Estimate eigenvectors
 		print "Inferring set of eigenvectors."
-		V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
-
 		if cov_save:
+			if cov_e is not None:
+				print "Using " + str(cov_e) + " eigenvectors for covariance matrix."
+				ce = cov_e
+			else:
+				ce = e
+			V, Sigma = finalSVD(E, f, ce, chunks, chunk_N)
+			
 			# Estimate approximate covariance matrix
 			print "Approximating covariance matrix.\n"
 			C = np.dot(V*Sigma, V.T)
 		else:
+			V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
 			C = None
 		return V, C, None
 	else:
@@ -321,22 +333,29 @@ def flashPCAngsd(D, f, e, indf_save, cov_save, M=100, M_tole=1e-5, t=1):
 		else:
 			Pi = None
 
-		# Estimate approximate covariance matrix based on reconstruction
+		# Estimate eigenvectors
 		print "Inferring final set of eigenvectors."
-		V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
-
 		if cov_save:
+			if cov_e is not None:
+				print "Using " + str(cov_e) + " eigenvectors for covariance matrix."
+				ce = cov_e
+			else:
+				ce = e				
+			V, Sigma = finalSVD(E, f, ce, chunks, chunk_N)
+
 			# Estimate approximate covariance matrix
 			print "Approximating covariance matrix.\n"
 			C = np.dot(V*Sigma, V.T)
+
 		else:
+			V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
 			C = None
 	
 		return V, C, Pi
 
 
 ### Caller ###
-print "FlashPCAngsd Alpha 0.15\n"
+print "FlashPCAngsd Alpha 0.16\n"
 
 # Read in single-read matrix
 if args.npy is not None:
@@ -368,10 +387,10 @@ chunks = [i * chunk_N for i in xrange(args.t)]
 # Population allele frequencies
 print "Estimating population allele frequencies."
 f = estimateF(D, args.t)
-mask = (f >= 0.05) & (f <= 0.95)
+mask = (f >= args.maf) & (f <= (1 - args.maf))
 
 # Removing rare variants
-print "Filtering out rare variants."
+print "Filtering variants with a MAF filter of " + str(args.maf) + "."
 f = np.compress(mask, f)
 D = np.compress(mask, D, axis=1)
 n, m = D.shape
@@ -379,14 +398,19 @@ print str(n) + " samples, " + str(m) + " sites.\n"
 
 # FlashPCAngsd
 print "Performing FlashPCAngsd."
-V, C, Pi = flashPCAngsd(D, f, args.e, args.indf_save, args.cov_save, args.m, args.m_tole, args.t)
+print "Using " + str(args.e) + " eigenvectors."
+V, C, Pi = flashPCAngsd(D, f, args.e, args.indf_save, args.cov_save, args.cov_e, args.m, args.m_tole, args.t)
 
 print "Saving eigenvectors as " + args.o + ".eigenvecs.npy (Binary)."
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
 
 if args.cov_save:
 	print "Saving covariance matrix as " + args.o + ".cov.npy (Binary)."
-	np.savetxt(args.o + ".cov", C.astype(float, copy=False))
+	np.save(args.o + ".cov", C.astype(float, copy=False))
+
+if args.maf_save:
+	print "Saving population allele frequencies as " + args.o + ".maf.npy (Binary)."
+	np.save(args.o + ".maf", f.astype(float, copy=False))
 
 if args.indf_save:
 	print "Saving individual allele frequencies as " + args.o + ".pi.npy (Binary)."
