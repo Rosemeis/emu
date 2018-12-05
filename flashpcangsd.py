@@ -68,6 +68,8 @@ def convertPlink_inner(G, D, S, N):
 		for j in xrange(m):
 			if np.isnan(G[i, j]): # Missing value
 				D[i, j] = -9
+			elif int(D[i, j]) == 2:
+				D[i, j] = 1 
 			else:
 				D[i, j] = int(G[i, j])
 
