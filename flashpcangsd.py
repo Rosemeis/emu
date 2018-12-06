@@ -305,7 +305,7 @@ def flashPCAngsd(D, f, e, indf_save, cov_save, cov_e, M=100, M_tole=1e-5, t=1):
 		else:
 			V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
 			C = None
-		return E, V, C, None
+		return E, V, Sigma, C, None
 	else:
 		# Estimate initial individual allele frequencies
 		if indf_save:
@@ -368,7 +368,7 @@ def flashPCAngsd(D, f, e, indf_save, cov_save, cov_e, M=100, M_tole=1e-5, t=1):
 			V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
 			C = None
 	
-		return E, V, C, Pi
+		return E, V, Sigma, C, Pi
 
 
 ### Caller ###
@@ -412,10 +412,12 @@ print str(n) + " samples, " + str(m) + " sites.\n"
 # FlashPCAngsd
 print "Performing FlashPCAngsd."
 print "Using " + str(args.e) + " eigenvectors."
-E, V, C, Pi = flashPCAngsd(D, f, args.e, args.indf_save, args.cov_save, args.cov_e, args.m, args.m_tole, args.t)
+E, V, Sigma, C, Pi = flashPCAngsd(D, f, args.e, args.indf_save, args.cov_save, args.cov_e, args.m, args.m_tole, args.t)
 
 print "Saving eigenvectors as " + args.o + ".eigenvecs.npy (Binary)."
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
+print "Saving eigenvalues as " + args.o + ".eigenvals (Text)."
+np.savetxt(args.o + ".eigenvals", Sigma)
 
 if args.selection:
 	print "Performing selection scan along each PC."
