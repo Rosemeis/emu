@@ -265,7 +265,7 @@ def galinskyScan(E, V, Sigma, e):
 
 	# Loop over different PCs
 	for e in xrange(V.shape[1]):
-		Dsquared[:, e] = np.dot(E.T, V[:, e])/Sigma[e]
+		Dsquared[:, e] = (np.dot(E.T, V[:, e])**2)/Sigma[e]
 
 	return Dsquared
 
