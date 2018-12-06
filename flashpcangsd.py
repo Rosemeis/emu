@@ -1,5 +1,6 @@
 """
 Our FlashPCAngsd approach.
+Jonas Meisner, Siyang Liu and Anders Albrechtsen (2018)
 """
 
 __author__ = "Jonas Meisner"
@@ -7,7 +8,6 @@ __author__ = "Jonas Meisner"
 # Libraries and modules
 import numpy as np
 import threading
-import os
 import argparse
 from numba import jit
 from math import sqrt
@@ -15,7 +15,7 @@ from scipy.sparse.linalg import svds
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="FlashPCAngsd")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.16")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.17")
 parser.add_argument("-npy", metavar="FILE",
 	help="Input file (.npy)")
 parser.add_argument("-plink", metavar="PREFIX",
@@ -30,6 +30,8 @@ parser.add_argument("-t", metavar="INT", type=int, default=1,
 	help="Number of threads")
 parser.add_argument("-maf", metavar="FLOAT", type=float, default=0.05,
 	help="Threshold for minor allele frequencies")
+parser.add_argument("-selection", action="store_true",
+	help="Perform PC-based selection scan (Galinsky et al. 2016)")
 parser.add_argument("-cov_e", metavar="INT", type=int,
 	help="Number of eigenvectors to use for covariance matrix only")
 parser.add_argument("-cov_save", action="store_true",
@@ -38,6 +40,8 @@ parser.add_argument("-maf_save", action="store_true",
 	help="Save estimated population allele frequencies")
 parser.add_argument("-indf_save", action="store_true",
 	help="Save estimated individual allele frequencies (Binary)")
+parser.add_argument("-bool_save", action="store_true",
+	help="Save boolean vector used in site filtering (Binary)")
 parser.add_argument("-o", metavar="OUTPUT", help="Prefix output file name", default="flash")
 args = parser.parse_args()
 
@@ -68,14 +72,14 @@ def convertPlink_inner(G, D, S, N):
 		for j in xrange(m):
 			if np.isnan(G[i, j]): # Missing value
 				D[i, j] = -9
-			elif int(D[i, j]) == 2:
+			elif int(G[i, j]) == 2:
 				D[i, j] = 1 
 			else:
 				D[i, j] = int(G[i, j])
 
 # Estimate population allele frequencies
 def estimateF(D, t=1):
-	n, m = D.shape
+	n, m = D.shape # Dimensions
 	f = np.zeros(m, dtype=np.float32)
 
 	# Multithreading parameters
@@ -208,7 +212,7 @@ def updateE_SVD(D, E, f, W, s, U, S, N):
 # Standardize dosages prior to final SVD - (E - f)/sqrt(f*(1-f))
 @jit("void(f4[:, :], f4[:], i8, i8)", nopython=True, nogil=True, cache=True)
 def standardizeE(E, f, S, N):
-	n, m = E.shape
+	n, m = E.shape # Dimensions
 	for i in xrange(S, min(S+N, n)):
 		for j in xrange(m):
 			E[i, j] -= f[j]
@@ -216,7 +220,7 @@ def standardizeE(E, f, S, N):
 
 # Final SVD for extracting V and Sigma
 def finalSVD(E, f, e, chunks, chunk_N):
-	n, m = E.shape
+	n, m = E.shape # Dimensions
 
 	# Multithreading
 	threads = [threading.Thread(target=standardizeE, args=(E, f, chunk, chunk_N)) for chunk in chunks]
@@ -252,7 +256,18 @@ def rmse_inner(A, B, S, N, R):
 				R[i] += (A[i, j] - B[i, j])*(A[i, j] - B[i, j])
 			else:
 				C = A[i, j]*-1
-				R[i] += (C - B[i, j])*(C - B[i, j])		
+				R[i] += (C - B[i, j])*(C - B[i, j])
+
+# Selection scan
+def galinskyScan(E, V, Sigma, e):
+	n, m = E.shape
+	Dsquared = np.empty((m, e), dtype=np.float32) # Container for test statistics
+
+	# Loop over different PCs
+	for e in xrange(V.shape[1]):
+		Dsquared[:, e] = np.dot(E.T, V[:, e])/Sigma[e]
+
+	return Dsquared
 
 
 ### Main function ###
@@ -290,7 +305,7 @@ def flashPCAngsd(D, f, e, indf_save, cov_save, cov_e, M=100, M_tole=1e-5, t=1):
 		else:
 			V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
 			C = None
-		return V, C, None
+		return E, V, C, None
 	else:
 		# Estimate initial individual allele frequencies
 		if indf_save:
@@ -353,11 +368,11 @@ def flashPCAngsd(D, f, e, indf_save, cov_save, cov_e, M=100, M_tole=1e-5, t=1):
 			V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
 			C = None
 	
-		return V, C, Pi
+		return E, V, C, Pi
 
 
 ### Caller ###
-print "FlashPCAngsd Alpha 0.16\n"
+print "FlashPCAngsd Alpha 0.17\n"
 
 # Read in single-read matrix
 if args.npy is not None:
@@ -382,10 +397,6 @@ else:
 
 n, m = D.shape
 
-# Multithreading parameters
-chunk_N = int(np.ceil(float(n)/args.t))
-chunks = [i * chunk_N for i in xrange(args.t)]
-
 # Population allele frequencies
 print "Estimating population allele frequencies."
 f = estimateF(D, args.t)
@@ -401,19 +412,35 @@ print str(n) + " samples, " + str(m) + " sites.\n"
 # FlashPCAngsd
 print "Performing FlashPCAngsd."
 print "Using " + str(args.e) + " eigenvectors."
-V, C, Pi = flashPCAngsd(D, f, args.e, args.indf_save, args.cov_save, args.cov_e, args.m, args.m_tole, args.t)
+E, V, C, Pi = flashPCAngsd(D, f, args.e, args.indf_save, args.cov_save, args.cov_e, args.m, args.m_tole, args.t)
 
 print "Saving eigenvectors as " + args.o + ".eigenvecs.npy (Binary)."
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
 
+if args.selection:
+	print "Performing selection scan along each PC."
+	Dsquared = galinskyScan(E, V, Sigma, args.e)
+	print "Saving test statistics as " + args.o + ".selection.npy (Binary)."
+	np.save(args.o + ".selection", Dsquared.astype(float, copy=False))
+	del Dsquared, E, V # Clear memory
+else:
+	del E, V # Clear memory
+
 if args.cov_save:
 	print "Saving covariance matrix as " + args.o + ".cov.npy (Binary)."
 	np.save(args.o + ".cov", C.astype(float, copy=False))
+	del C # Clear memory
 
 if args.maf_save:
 	print "Saving population allele frequencies as " + args.o + ".maf.npy (Binary)."
 	np.save(args.o + ".maf", f.astype(float, copy=False))
+	del maf # Clear memory
 
 if args.indf_save:
 	print "Saving individual allele frequencies as " + args.o + ".pi.npy (Binary)."
 	np.save(args.o + ".pi", Pi.astype(float, copy=False))
+	del indf # Clear memory
+
+if args.bool_save:
+	print "Saving boolean vector for site filtering as " + args.o + ".bool.npy (Binary)"
+	np.save(args.o + ".bool", mask)
