@@ -41,7 +41,7 @@ parser.add_argument("-maf_save", action="store_true",
 parser.add_argument("-indf_save", action="store_true",
 	help="Save estimated individual allele frequencies (Binary)")
 parser.add_argument("-bool_save", action="store_true",
-	help="Save boolean vector used in site filtering (Binary)")
+	help="Save boolean vector used in MAF filtering (Binary)")
 parser.add_argument("-o", metavar="OUTPUT", help="Prefix output file name", default="flash")
 args = parser.parse_args()
 
@@ -105,7 +105,10 @@ def estimateF_inner(D, f, S, N):
 			if D[i, j] != -9:
 				nSite += 1
 				f[j] += D[i, j]
-		f[j] /= nSite
+		if nSite == 0:
+			f[j] = 0
+		else:
+			f[j] /= nSite
 
 # Center dosages prior to SVD - (E - f)
 @jit("void(f4[:, :], f4[:], i8, i8)", nopython=True, nogil=True, cache=True)
@@ -290,10 +293,10 @@ def flashPCAngsd(D, f, e, indf_save, cov_save, cov_e, M=100, M_tole=1e-5, t=1):
 		print "Missingess not taken into account!"
 
 		# Estimate eigenvectors
-		print "Inferring set of eigenvectors."
+		print "Inferring set of eigenvector(s)."
 		if cov_save:
 			if cov_e is not None:
-				print "Using " + str(cov_e) + " eigenvectors for covariance matrix."
+				print "Using " + str(cov_e) + " eigenvector(s) for covariance matrix."
 				ce = cov_e
 			else:
 				ce = e
@@ -351,10 +354,10 @@ def flashPCAngsd(D, f, e, indf_save, cov_save, cov_e, M=100, M_tole=1e-5, t=1):
 			Pi = None
 
 		# Estimate eigenvectors
-		print "Inferring final set of eigenvectors."
+		print "Inferring final set of eigenvector(s)."
 		if cov_save:
 			if cov_e is not None:
-				print "Using " + str(cov_e) + " eigenvectors for covariance matrix."
+				print "Using " + str(cov_e) + " eigenvector(s) for covariance matrix."
 				ce = cov_e
 			else:
 				ce = e				
@@ -400,23 +403,25 @@ n, m = D.shape
 # Population allele frequencies
 print "Estimating population allele frequencies."
 f = estimateF(D, args.t)
-mask = (f >= args.maf) & (f <= (1 - args.maf))
 
 # Removing rare variants
-print "Filtering variants with a MAF filter of " + str(args.maf) + "."
-f = np.compress(mask, f)
-D = np.compress(mask, D, axis=1)
+if args.maf > 0.0:
+	mask = (f >= args.maf) & (f <= (1 - args.maf))
+	print "Filtering variants with a MAF filter of " + str(args.maf) + "."
+	f = np.compress(mask, f)
+	D = np.compress(mask, D, axis=1)
+
 n, m = D.shape
 print str(n) + " samples, " + str(m) + " sites.\n"
 
 # FlashPCAngsd
 print "Performing FlashPCAngsd."
-print "Using " + str(args.e) + " eigenvectors."
+print "Using " + str(args.e) + " eigenvector(s)."
 E, V, Sigma, C, Pi = flashPCAngsd(D, f, args.e, args.indf_save, args.cov_save, args.cov_e, args.m, args.m_tole, args.t)
 
-print "Saving eigenvectors as " + args.o + ".eigenvecs.npy (Binary)."
+print "Saving eigenvector(s) as " + args.o + ".eigenvecs.npy (Binary)."
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
-print "Saving eigenvalues as " + args.o + ".eigenvals (Text)."
+print "Saving eigenvalue(s) as " + args.o + ".eigenvals (Text)."
 np.savetxt(args.o + ".eigenvals", Sigma)
 
 if args.selection:
@@ -443,6 +448,6 @@ if args.indf_save:
 	np.save(args.o + ".pi", Pi.astype(float, copy=False))
 	del indf # Clear memory
 
-if args.bool_save:
-	print "Saving boolean vector for site filtering as " + args.o + ".bool.npy (Binary)"
+if (args.bool_save) and (args.maf > 0.0):
+	print "Saving boolean vector for used in MAF filtering as " + args.o + ".bool.npy (Binary)"
 	np.save(args.o + ".bool", mask)
