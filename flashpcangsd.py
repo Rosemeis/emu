@@ -15,7 +15,7 @@ from scipy.sparse.linalg import svds
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="FlashPCAngsd")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.17")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.175")
 parser.add_argument("-npy", metavar="FILE",
 	help="Input file (.npy)")
 parser.add_argument("-plink", metavar="PREFIX",
@@ -32,10 +32,6 @@ parser.add_argument("-maf", metavar="FLOAT", type=float, default=0.05,
 	help="Threshold for minor allele frequencies")
 parser.add_argument("-selection", action="store_true",
 	help="Perform PC-based selection scan (Galinsky et al. 2016)")
-parser.add_argument("-cov_e", metavar="INT", type=int,
-	help="Number of eigenvectors to use for covariance matrix only")
-parser.add_argument("-cov_save", action="store_true",
-	help="Save estimated covariance matrix (Binary)")
 parser.add_argument("-maf_save", action="store_true",
 	help="Save estimated population allele frequencies")
 parser.add_argument("-indf_save", action="store_true",
@@ -110,46 +106,6 @@ def estimateF_inner(D, f, S, N):
 		else:
 			f[j] /= nSite
 
-# Center dosages prior to SVD - (E - f)
-@jit("void(f4[:, :], f4[:], i8, i8)", nopython=True, nogil=True, cache=True)
-def centerE(E, f, S, N):
-	n, m = E.shape
-	for i in xrange(S, min(S+N, n)):
-		for j in xrange(m):
-			E[i, j] -= f[j]
-
-# Compute individual allele frequencies - add intercept and truncate
-@jit("void(f4[:, :], f4[:], i8, i8)", nopython=True, nogil=True, cache=True)
-def computePi(Pi, f, S, N):
-	n, m = Pi.shape
-	for i in xrange(S, min(S+N, n)):
-		for j in xrange(m):
-			Pi[i, j] += f[j]
-			Pi[i, j] = max(Pi[i, j], 1e-4)
-			Pi[i, j] = min(Pi[i, j], 1-(1e-4))
-
-# Iteration for estimation of individual allele frequencies
-def computeSVD(E, f, e, chunks, chunk_N):
-	# Multithreading - Centering dosages
-	threads = [threading.Thread(target=centerE, args=(E, f, chunk, chunk_N)) for chunk in chunks]
-	for thread in threads:
-		thread.start()
-	for thread in threads:
-		thread.join()
-
-	# Reduced SVD of rank K (Scipy library)
-	W, s, U = svds(E, k=e)
-	Pi = np.dot(W*s, U)
-
-	# Multithreading - Estimate Pi
-	threads = [threading.Thread(target=computePi, args=(Pi, f, chunk, chunk_N)) for chunk in chunks]
-	for thread in threads:
-		thread.start()
-	for thread in threads:
-		thread.join()
-
-	return Pi, W
-
 # Update E - initial step
 @jit("void(i1[:, :], f4[:], i8, i8, f4[:, :])", nopython=True, nogil=True, cache=True)
 def updateE_init(D, f, S, N, E):
@@ -162,20 +118,16 @@ def updateE_init(D, f, S, N, E):
 			else:
 				E[i, j] = D[i, j]
 
-# Update E
-@jit("void(i1[:, :], f4[:, :], i8, i8, f4[:, :])", nopython=True, nogil=True, cache=True)
-def updateE(D, Pi, S, N, E):
-	n, m = E.shape # Dimensions
+# Center dosages prior to SVD - (E - f)
+@jit("void(f4[:, :], f4[:], i8, i8)", nopython=True, nogil=True, cache=True)
+def centerE(E, f, S, N):
+	n, m = E.shape
 	for i in xrange(S, min(S+N, n)):
-		# Estimate posterior probabilities and update dosages
 		for j in xrange(m):
-			if D[i, j] == -9: # Missing site
-				E[i, j] = Pi[i, j]
-			else:
-				E[i, j] = D[i, j]
+			E[i, j] -= f[j]
 
 # Iteration for estimation of individual allele frequencies
-def computeSVD_E(D, E, f, e, chunks, chunk_N):
+def computeSVD(D, E, f, e, chunks, chunk_N, indf_save):
 	# Multithreading - Centering dosages
 	threads = [threading.Thread(target=centerE, args=(E, f, chunk, chunk_N)) for chunk in chunks]
 	for thread in threads:
@@ -193,7 +145,10 @@ def computeSVD_E(D, E, f, e, chunks, chunk_N):
 	for thread in threads:
 		thread.join()
 
-	return W
+	if not indf_save:
+		U = None
+
+	return W, s, U
 
 # Update E directly from SVD
 @jit("void(i1[:, :], f4[:, :], f4[:], f4[:, :], f4[:], f4[:, :], i8, i8)", nopython=True, nogil=True, cache=True)
@@ -211,6 +166,16 @@ def updateE_SVD(D, E, f, W, s, U, S, N):
 				E[i, j] = min(E[i, j], 1-(1e-4))
 			else:
 				E[i, j] = D[i, j]
+
+# Compute individual allele frequencies - add intercept and truncate
+@jit("void(f4[:, :], f4[:], i8, i8)", nopython=True, nogil=True, cache=True)
+def computePi(Pi, f, S, N):
+	n, m = Pi.shape
+	for i in xrange(S, min(S+N, n)):
+		for j in xrange(m):
+			Pi[i, j] += f[j]
+			Pi[i, j] = max(Pi[i, j], 1e-4)
+			Pi[i, j] = min(Pi[i, j], 1-(1e-4))
 
 # Standardize dosages prior to final SVD - (E - f)/sqrt(f*(1-f))
 @jit("void(f4[:, :], f4[:], i8, i8)", nopython=True, nogil=True, cache=True)
@@ -234,6 +199,7 @@ def finalSVD(E, f, e, chunks, chunk_N):
 
 	V, s, U = svds(E, k=e)
 	Sigma = s**2/m
+	del U
 	return V[:, ::-1], Sigma[::-1]
 
 # Measure difference
@@ -274,7 +240,7 @@ def galinskyScan(E, V, Sigma, e):
 
 
 ### Main function ###
-def flashPCAngsd(D, f, e, indf_save, cov_save, cov_e, M=100, M_tole=1e-5, t=1):
+def flashPCAngsd(D, f, e, indf_save, M=100, M_tole=1e-5, t=1):
 	n, m = D.shape # Dimensions
 	E = np.empty((n, m), dtype=np.float32) # Initiate E
 
@@ -294,44 +260,18 @@ def flashPCAngsd(D, f, e, indf_save, cov_save, cov_e, M=100, M_tole=1e-5, t=1):
 
 		# Estimate eigenvectors
 		print "Inferring set of eigenvector(s)."
-		if cov_save:
-			if cov_e is not None:
-				print "Using " + str(cov_e) + " eigenvector(s) for covariance matrix."
-				ce = cov_e
-			else:
-				ce = e
-			V, Sigma = finalSVD(E, f, ce, chunks, chunk_N)
-			
-			# Estimate approximate covariance matrix
-			print "Approximating covariance matrix.\n"
-			C = np.dot(V*Sigma, V.T)
-		else:
-			V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
-			C = None
-		return E, V, Sigma, C, None
+		V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
+		
+		return E, V, Sigma, None
 	else:
 		# Estimate initial individual allele frequencies
-		if indf_save:
-			Pi, W = computeSVD(E, f, e, chunks, chunk_N)
-		else:
-			W = computeSVD_E(D, E, f, e, chunks, chunk_N)
+		W, s, U = computeSVD(D, E, f, e, chunks, chunk_N, indf_save)
 		prevW = np.copy(W)
 		print "Individual allele frequencies estimated (1)"
 		
 		# Iterative estimation of individual allele frequencies
 		for iteration in xrange(2, M+1):
-			if indf_save:
-				# Multithreading
-				threads = [threading.Thread(target=updateE, args=(D, Pi, chunk, chunk_N, E)) for chunk in chunks]
-				for thread in threads:
-					thread.start()
-				for thread in threads:
-					thread.join()
-
-				# Estimate individual allele frequencies
-				Pi, W = computeSVD(E, f, e, chunks, chunk_N)
-			else:
-				W = computeSVD_E(D, E, f, e, chunks, chunk_N)
+			W, s, U = computeSVD(D, E, f, e, chunks, chunk_N, indf_save)
 
 			# Break iterative update if converged
 			diff = rmse(W, prevW, chunks, chunk_N)
@@ -341,11 +281,13 @@ def flashPCAngsd(D, f, e, indf_save, cov_save, cov_e, M=100, M_tole=1e-5, t=1):
 				break
 			prevW = np.copy(W)
 
-		del W, prevW
-
+		# Optional construction of individual allele frequencies for saving
 		if indf_save:
+			Pi = np.empty((n, m), dtype=np.float32)
+			Pi = np.dot(W*s, U, out=Pi)
+			
 			# Multithreading
-			threads = [threading.Thread(target=updateE, args=(D, Pi, chunk, chunk_N, E)) for chunk in chunks]
+			threads = [threading.Thread(target=computePi, args=(Pi, f, chunk, chunk_N)) for chunk in chunks]
 			for thread in threads:
 				thread.start()
 			for thread in threads:
@@ -353,29 +295,17 @@ def flashPCAngsd(D, f, e, indf_save, cov_save, cov_e, M=100, M_tole=1e-5, t=1):
 		else:
 			Pi = None
 
+		del W, s, U, prevW
+
 		# Estimate eigenvectors
 		print "Inferring final set of eigenvector(s)."
-		if cov_save:
-			if cov_e is not None:
-				print "Using " + str(cov_e) + " eigenvector(s) for covariance matrix."
-				ce = cov_e
-			else:
-				ce = e				
-			V, Sigma = finalSVD(E, f, ce, chunks, chunk_N)
-
-			# Estimate approximate covariance matrix
-			print "Approximating covariance matrix.\n"
-			C = np.dot(V*Sigma, V.T)
-
-		else:
-			V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
-			C = None
+		V, Sigma = finalSVD(E, f, e, chunks, chunk_N)
 	
-		return E, V, Sigma, C, Pi
+		return E, V, Sigma, Pi
 
 
 ### Caller ###
-print "FlashPCAngsd Alpha 0.17\n"
+print "FlashPCAngsd Alpha 0.175\n"
 
 # Read in single-read matrix
 if args.npy is not None:
@@ -417,7 +347,7 @@ print str(n) + " samples, " + str(m) + " sites.\n"
 # FlashPCAngsd
 print "Performing FlashPCAngsd."
 print "Using " + str(args.e) + " eigenvector(s)."
-E, V, Sigma, C, Pi = flashPCAngsd(D, f, args.e, args.indf_save, args.cov_save, args.cov_e, args.m, args.m_tole, args.t)
+E, V, Sigma, Pi = flashPCAngsd(D, f, args.e, args.indf_save, args.m, args.m_tole, args.t)
 
 print "Saving eigenvector(s) as " + args.o + ".eigenvecs.npy (Binary)."
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
@@ -433,20 +363,15 @@ if args.selection:
 else:
 	del E, V # Clear memory
 
-if args.cov_save:
-	print "Saving covariance matrix as " + args.o + ".cov.npy (Binary)."
-	np.save(args.o + ".cov", C.astype(float, copy=False))
-	del C # Clear memory
-
 if args.maf_save:
 	print "Saving population allele frequencies as " + args.o + ".maf.npy (Binary)."
 	np.save(args.o + ".maf", f.astype(float, copy=False))
-	del maf # Clear memory
+	del f # Clear memory
 
 if args.indf_save:
 	print "Saving individual allele frequencies as " + args.o + ".pi.npy (Binary)."
 	np.save(args.o + ".pi", Pi.astype(float, copy=False))
-	del indf # Clear memory
+	del Pi # Clear memory
 
 if (args.bool_save) and (args.maf > 0.0):
 	print "Saving boolean vector for used in MAF filtering as " + args.o + ".bool.npy (Binary)"
