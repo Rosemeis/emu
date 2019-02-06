@@ -265,7 +265,7 @@ def rmse_inner(A, B, S, N, R):
 
 # Selection scan
 def galinskyScan(U):
-	m, e = U.shape # Dimensions
+	e, m = U.shape # Dimensions
 	Dsquared = np.empty((m, e), dtype=np.float32) # Container for test statistics
 
 	# Loop over different PCs
