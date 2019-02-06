@@ -17,13 +17,15 @@ from sklearn.utils.extmath import randomized_svd
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="FlashPCAngsd")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.175")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.2")
 parser.add_argument("-npy", metavar="FILE",
 	help="Input file (.npy)")
 parser.add_argument("-plink", metavar="PREFIX",
 	help="Prefix for binary PLINK files")
 parser.add_argument("-e", metavar="INT", type=int,
-	help="Number of eigenvectors to use")
+	help="Number of eigenvectors to use in IAF estimation")
+parser.add_argument("-k", metavar="INT", type=int,
+	help="Number of eigenvectors to output in final SVD")
 parser.add_argument("-m", metavar="INT", type=int, default=100,
 	help="Maximum iterations for estimation of individual allele frequencies (100)")
 parser.add_argument("-m_tole", metavar="FLOAT", type=float, default=1e-5,
@@ -264,8 +266,8 @@ def rmse_inner(A, B, S, N, R):
 				R[i] += (C - B[i, j])*(C - B[i, j])			
 
 # Selection scan
-def galinskyScan(U):
-	e, m = U.shape # Dimensions
+def galinskyScan(U, e):
+	_, m = U.shape # Dimensions
 	Dsquared = np.empty((m, e), dtype=np.float32) # Container for test statistics
 
 	# Loop over different PCs
@@ -328,7 +330,7 @@ def accelUpdate(D, E, f, E0, W1, s1, U1, W2, s2, U2, alpha, S, N):
 
 
 ### Main function ###
-def flashPCAngsd(D, f, e, accel, F=None, Pvec=None, M=100, M_tole=1e-5, method="arpack", svd_iter=2, t=1):
+def flashPCAngsd(D, f, e, K, accel, F=None, Pvec=None, M=100, M_tole=1e-5, method="arpack", svd_iter=2, t=1):
 	n, m = D.shape # Dimensions
 	E = np.empty((n, m), dtype=np.float32) # Initiate E
 
@@ -358,7 +360,7 @@ def flashPCAngsd(D, f, e, accel, F=None, Pvec=None, M=100, M_tole=1e-5, method="
 
 		# Estimate eigenvectors
 		print "Inferring set of eigenvector(s)."
-		V, Sigma, U = finalSVD(E, f, e, chunks, chunk_N, method, svd_iter)
+		V, Sigma, U = finalSVD(E, f, K, chunks, chunk_N, method, svd_iter)
 		
 		return E, V, Sigma, U
 	else:
@@ -412,7 +414,7 @@ def flashPCAngsd(D, f, e, accel, F=None, Pvec=None, M=100, M_tole=1e-5, method="
 
 		# Estimate eigenvectors
 		print "Inferring final set of eigenvector(s)."
-		V, s, U = finalSVD(E, f, e, chunks, chunk_N, method, svd_iter)
+		V, s, U = finalSVD(E, f, K, chunks, chunk_N, method, svd_iter)
 		del E
 	
 		return V, s, U
@@ -424,6 +426,11 @@ print "FlashPCAngsd Alpha 0.2\n"
 # Workflow check
 svdlist = ["arpack", "randomized"]
 assert args.svd in svdlist, "Must use a valid truncated SVD approach!"
+
+if args.k is None:
+	K = args.e
+else:
+	K = args.k
 
 # Read in single-read matrix
 if args.npy is not None:
@@ -481,7 +488,7 @@ print str(n) + " samples, " + str(m) + " sites.\n"
 # FlashPCAngsd
 print "Performing FlashPCAngsd."
 print "Using " + str(args.e) + " eigenvector(s)."
-V, s, U = flashPCAngsd(D, f, args.e, args.accel, F, Pvec, args.m, args.m_tole, args.svd, args.randomized_power, args.t)
+V, s, U = flashPCAngsd(D, f, args.e, K, args.accel, F, Pvec, args.m, args.m_tole, args.svd, args.randomized_power, args.t)
 
 print "Saving eigenvector(s) as " + args.o + ".eigenvecs.npy (Binary)."
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
@@ -495,7 +502,7 @@ del V, s # Clear memory
 
 if args.selection:
 	print "Performing selection scan along each PC."
-	Dsquared = galinskyScan(U)
+	Dsquared = galinskyScan(U, args.e)
 	print "Saving test statistics as " + args.o + ".selection.npy (Binary)."
 	np.save(args.o + ".selection", Dsquared.astype(float, copy=False))
 	del Dsquared # Clear memory
