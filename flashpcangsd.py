@@ -272,7 +272,7 @@ def galinskyScan(U):
 
 	# Loop over different PCs
 	for k in xrange(e):
-		Dsquared[:, e] = (U[e]**2)*m
+		Dsquared[:, k] = (U[k]**2)*m
 
 	return Dsquared
 
@@ -489,7 +489,6 @@ print str(n) + " samples, " + str(m) + " sites.\n"
 print "Performing FlashPCAngsd."
 print "Using " + str(args.e) + " eigenvector(s)."
 V, s, U = flashPCAngsd(D, f, args.e, K, args.accel, F, Pvec, args.m, args.m_tole, args.svd, args.randomized_power, args.t)
-print V.shape, s.shape, U.shape
 
 print "Saving eigenvector(s) as " + args.o + ".eigenvecs.npy (Binary)."
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
