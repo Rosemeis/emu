@@ -498,12 +498,12 @@ np.savetxt(args.o + ".eigenvals", s**2/m)
 
 if args.indf_save:
 	print "Saving individual allele frequencies as " + args.o + ".indf.npy (Binary)."
-	np.save(args.o + ".indf", np.dot(V[:, :e]*s[:e], U[:e]).astype(float, copy=False))
+	np.save(args.o + ".indf", np.dot(V[:, :args.e]*s[:args.e], U[:args.e]).astype(float, copy=False))
 del V, s # Clear memory
 
 if args.selection:
 	print "Performing selection scan along each PC."
-	Dsquared = galinskyScan(U[:e])
+	Dsquared = galinskyScan(U[:args.e])
 	print "Saving test statistics as " + args.o + ".selection.npy (Binary)."
 	np.save(args.o + ".selection", Dsquared.astype(float, copy=False))
 	del Dsquared # Clear memory
