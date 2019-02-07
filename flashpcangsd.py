@@ -266,8 +266,8 @@ def rmse_inner(A, B, S, N, R):
 				R[i] += (C - B[i, j])*(C - B[i, j])			
 
 # Selection scan
-def galinskyScan(U, e):
-	_, m = U.shape # Dimensions
+def galinskyScan(U):
+	e, m = U.shape # Dimensions
 	Dsquared = np.empty((m, e), dtype=np.float32) # Container for test statistics
 
 	# Loop over different PCs
@@ -489,6 +489,7 @@ print str(n) + " samples, " + str(m) + " sites.\n"
 print "Performing FlashPCAngsd."
 print "Using " + str(args.e) + " eigenvector(s)."
 V, s, U = flashPCAngsd(D, f, args.e, K, args.accel, F, Pvec, args.m, args.m_tole, args.svd, args.randomized_power, args.t)
+print V.shape, s.shape, U.shape
 
 print "Saving eigenvector(s) as " + args.o + ".eigenvecs.npy (Binary)."
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
@@ -497,12 +498,12 @@ np.savetxt(args.o + ".eigenvals", s**2/m)
 
 if args.indf_save:
 	print "Saving individual allele frequencies as " + args.o + ".indf.npy (Binary)."
-	np.save(args.o + ".indf", np.dot(V*s, U).astype(float, copy=False))
+	np.save(args.o + ".indf", np.dot(V[:, :e]*s[:e], U[:e]).astype(float, copy=False))
 del V, s # Clear memory
 
 if args.selection:
 	print "Performing selection scan along each PC."
-	Dsquared = galinskyScan(U, args.e)
+	Dsquared = galinskyScan(U[:e])
 	print "Saving test statistics as " + args.o + ".selection.npy (Binary)."
 	np.save(args.o + ".selection", Dsquared.astype(float, copy=False))
 	del Dsquared # Clear memory
