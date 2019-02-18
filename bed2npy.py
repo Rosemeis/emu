@@ -16,8 +16,8 @@ from tqdm import tqdm
 parser = argparse.ArgumentParser(prog="bed2npy")
 parser.add_argument("-plink", metavar="PREFIX",
 	help="Prefix for binary PLINK files")
-parser.add_argument("-chunks", metavar="INT", type=int, default=50,
-	help="Number of chunks used for reading PLINK bed file (50)")
+parser.add_argument("-chunks", metavar="INT", type=int, default=100,
+	help="Number of chunks used for reading PLINK bed file (100)")
 parser.add_argument("-t", metavar="INT", type=int, default=1,
 	help="Number of threads")
 parser.add_argument("-o", metavar="OUTPUT", help="Output filename", default="flash")

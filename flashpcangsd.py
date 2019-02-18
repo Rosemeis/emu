@@ -17,7 +17,7 @@ from sklearn.utils.extmath import randomized_svd
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="FlashPCAngsd")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.2")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.21")
 parser.add_argument("-npy", metavar="FILE",
 	help="Input file (.npy)")
 parser.add_argument("-plink", metavar="PREFIX",
@@ -34,12 +34,10 @@ parser.add_argument("-t", metavar="INT", type=int, default=1,
 	help="Number of threads")
 parser.add_argument("-maf", metavar="FLOAT", type=float, default=0.05,
 	help="Threshold for minor allele frequencies")
-parser.add_argument("-chunks", metavar="INT", type=int, default=10,
-	help="Number of chunks used for reading PLINK bed file (10)")
+parser.add_argument("-chunks", metavar="INT", type=int, default=100,
+	help="Number of chunks used for reading PLINK bed file (100)")
 parser.add_argument("-selection", action="store_true",
 	help="Perform PC-based selection scan (Galinsky et al. 2016)")
-parser.add_argument("-accel", action="store_true",
-	help="Perform accelerated EM-PCA")
 parser.add_argument("-pop", metavar="FILE",
 	help="Input file of region-based allele frequencies (.npy)")
 parser.add_argument("-reg", metavar="FILE",
@@ -160,7 +158,7 @@ def centerE(E, f, S, N):
 			E[i, j] -= f[j]
 
 # Iteration for estimation of individual allele frequencies
-def computeSVD(D, E, f, e, chunks, chunk_N, accel, method, power):
+def computeSVD(D, E, f, e, chunks, chunk_N, method, power):
 	# Multithreading - Centering dosages
 	threads = [threading.Thread(target=centerE, args=(E, f, chunk, chunk_N)) for chunk in chunks]
 	for thread in threads:
@@ -180,10 +178,8 @@ def computeSVD(D, E, f, e, chunks, chunk_N, accel, method, power):
 	for thread in threads:
 		thread.join()
 
-	if not accel:
-		U = None
-
-	return W, s, U
+	U = None
+	return W, s
 
 # Update E directly from SVD
 @jit("void(i1[:, :], f4[:, :], f4[:], f4[:, :], f4[:], f4[:, :], i8, i8)", nopython=True, nogil=True, cache=True)
@@ -201,16 +197,6 @@ def updateE_SVD(D, E, f, W, s, U, S, N):
 				E[i, j] = min(E[i, j], 1-(1e-4))
 			else:
 				E[i, j] = D[i, j]
-
-# Compute individual allele frequencies - add intercept and truncate
-@jit("void(f4[:, :], f4[:], i8, i8)", nopython=True, nogil=True, cache=True)
-def computePi(Pi, f, S, N):
-	n, m = Pi.shape # Dimensions
-	for i in xrange(S, min(S+N, n)):
-		for j in xrange(m):
-			Pi[i, j] += f[j]
-			Pi[i, j] = max(Pi[i, j], 1e-4)
-			Pi[i, j] = min(Pi[i, j], 1-(1e-4))
 
 # Standardize dosages prior to final SVD - (E - f)/sqrt(f*(1-f))
 @jit("void(f4[:, :], f4[:], i8, i8)", nopython=True, nogil=True, cache=True)
@@ -276,61 +262,9 @@ def galinskyScan(U):
 
 	return Dsquared
 
-# Acceleration
-def squarem_alpha(E0, W1, s1, U1, W2, s2, U2, chunks, chunk_N):
-	n, _ = W1.shape
-	sr2 = np.zeros(n, dtype=np.float32)
-	sv2 = np.zeros(n, dtype=np.float32)
-
-	# Multithreading
-	threads = [threading.Thread(target=squarem_alpha_inner, args=(E0, W1, s1, U1, W2, s2, U2, chunk, chunk_N, sr2, sv2)) for chunk in chunks]
-	for thread in threads:
-		thread.start()
-	for thread in threads:
-		thread.join()
-	
-	sr2sum = np.sum(sr2)
-	sv2sum = np.sum(sv2)
-	alpha = sqrt(sr2sum/sv2sum)
-
-	return alpha, sr2sum, sv2sum
-
-@jit("void(f4[:, :], f4[:, :], f4[:], f4[:, :], f4[:, :], f4[:], f4[:, :], i8, i8, f4[:], f4[:])", nopython=True, nogil=True, cache=True)
-def squarem_alpha_inner(E0, W1, s1, U1, W2, s2, U2, S, N, sr2, sv2):
-	n, K = W1.shape
-	m, _ = U1.shape
-	for i in xrange(S, min(S+N, n)):
-		for j in xrange(m):
-			theta1 = 0
-			theta2 = 0
-			for k in xrange(K):
-				theta1 += W1[i, k]*s1[k]*U1[k, j]
-				theta2 += W2[i, k]*s2[k]*U2[k, j]
-			sr2[i] += (theta1 - E0[i, j])**2
-			sv2[i] += (theta2 - 2*theta1 + E0[i, j])**2
-
-@jit("void(i1[:, :], f4[:, :], f4[:], f4[:, :], f4[:, :], f4[:], f4[:, :], f4[:, :], f4[:], f4[:, :], f8, i8, i8)", nopython=True, nogil=True, cache=True)
-def accelUpdate(D, E, f, E0, W1, s1, U1, W2, s2, U2, alpha, S, N):
-	n, K = W1.shape
-	m, _ = U1.shape
-	for i in xrange(S, min(S+N, n)):
-		for j in xrange(m):
-			theta1 = 0
-			theta2 = 0
-			for k in xrange(K):
-				theta1 += W1[i, k]*s1[k]*U1[k, j]
-				theta2 += W2[i, k]*s2[k]*U2[k, j]
-			E0[i, j] = E0[i, j] + 2*alpha*(theta1 - E0[i, j]) + alpha*alpha*(theta2 - 2*theta1 + E0[i, j])
-			if D[i, j] == -9:
-				E[i, j] = E0[i, j] + f[j]
-				E[i, j] = max(E[i, j], 1e-4)
-				E[i, j] = min(E[i, j], 1-(1e-4))
-			else:
-				E[i, j] = D[i, j]
-
 
 ### Main function ###
-def flashPCAngsd(D, f, e, K, accel, F=None, Pvec=None, M=100, M_tole=1e-5, method="arpack", svd_iter=2, t=1):
+def flashPCAngsd(D, f, e, K, F=None, Pvec=None, M=100, M_tole=1e-5, method="arpack", svd_iter=2, t=1):
 	n, m = D.shape # Dimensions
 	E = np.empty((n, m), dtype=np.float32) # Initiate E
 
@@ -360,57 +294,28 @@ def flashPCAngsd(D, f, e, K, accel, F=None, Pvec=None, M=100, M_tole=1e-5, metho
 
 		# Estimate eigenvectors
 		print "Inferring set of eigenvector(s)."
-		V, Sigma, U = finalSVD(E, f, K, chunks, chunk_N, method, svd_iter)
+		V, s, U = finalSVD(E, f, K, chunks, chunk_N, method, svd_iter)
+		del E
 		
-		return E, V, Sigma, U
+		return V, s, U
 	else:
-		if not accel:
-			# Estimate initial individual allele frequencies
-			W, s, U = computeSVD(D, E, f, e, chunks, chunk_N, accel, method, svd_iter)
-			prevW = np.copy(W)
-			print "Individual allele frequencies estimated (1)"
-			
-			# Iterative estimation of individual allele frequencies
-			for iteration in xrange(2, M+1):
-				W, s, U = computeSVD(D, E, f, e, chunks, chunk_N, accel, method, svd_iter)
-
-				# Break iterative update if converged
-				diff = rmse(W, prevW, chunks, chunk_N)
-				print "Individual allele frequencies estimated (" + str(iteration) + "). RMSE=" + str(diff)
-				if diff < M_tole:
-					print "Estimation of individual allele frequencies has converged."
-					break
-				prevW = np.copy(W)
+		# Estimate initial individual allele frequencies
+		W, s = computeSVD(D, E, f, e, chunks, chunk_N, method, svd_iter)
+		prevW = np.copy(W)
+		print "Individual allele frequencies estimated (1)"
 		
-		else: # Accelerated EM (SQUAREM2)
-			minStep, maxStep = 1.0, 1.0
-			W0, s0, U0 = computeSVD(D, E, f, e, chunks, chunk_N, accel, method, svd_iter)
-			E0 = np.dot(W0*s0, U0)
-			del W0, s0, U0
+		# Iterative estimation of individual allele frequencies
+		for iteration in xrange(2, M+1):
+			W, s = computeSVD(D, E, f, e, chunks, chunk_N, method, svd_iter)
 
-			for iteration in xrange(1, M+1):
-				W1, s1, U1 = computeSVD(D, E, f, e, chunks, chunk_N, accel, method, svd_iter)
-				W2, s2, U2 = computeSVD(D, E, f, e, chunks, chunk_N, accel, method, svd_iter)
-				alpha, sr2, sv2 = squarem_alpha(E0, W1, s1, U1, W2, s2, U2, chunks, chunk_N)
-				alpha = max(minStep, min(maxStep, alpha))
-				if alpha == maxStep:
-					maxStep = 4*maxStep
-
-				# Multithreading
-				threads = [threading.Thread(target=accelUpdate, args=(D, E, f, E0, W1, s1, U1, W2, s2, U2, alpha, chunk, chunk_N)) for chunk in chunks]
-				for thread in threads:
-					thread.start()
-				for thread in threads:
-					thread.join()
-
-				print "Iteration " + str(iteration) + ": " + str([alpha, sr2, sv2])
-				if sr2 <= M_tole:
-					break
-
-		if not accel:
-			del W, s, U, prevW
-		else:
-			del E0, W1, s1, U1, W2, s2, U2
+			# Break iterative update if converged
+			diff = rmse(W, prevW, chunks, chunk_N)
+			print "Individual allele frequencies estimated (" + str(iteration) + "). RMSE=" + str(diff)
+			if diff < M_tole:
+				print "Estimation of individual allele frequencies has converged."
+				break
+			prevW = np.copy(W)
+		del W, s, U, prevW
 
 		# Estimate eigenvectors
 		print "Inferring final set of eigenvector(s)."
@@ -421,7 +326,7 @@ def flashPCAngsd(D, f, e, K, accel, F=None, Pvec=None, M=100, M_tole=1e-5, metho
 
 
 ### Caller ###
-print "FlashPCAngsd Alpha 0.2\n"
+print "FlashPCAngsd Alpha 0.21\n"
 
 # Workflow check
 svdlist = ["arpack", "randomized"]
@@ -488,7 +393,7 @@ print str(n) + " samples, " + str(m) + " sites.\n"
 # FlashPCAngsd
 print "Performing FlashPCAngsd."
 print "Using " + str(args.e) + " eigenvector(s)."
-V, s, U = flashPCAngsd(D, f, args.e, K, args.accel, F, Pvec, args.m, args.m_tole, args.svd, args.randomized_power, args.t)
+V, s, U = flashPCAngsd(D, f, args.e, K, F, Pvec, args.m, args.m_tole, args.svd, args.randomized_power, args.t)
 
 print "Saving eigenvector(s) as " + args.o + ".eigenvecs.npy (Binary)."
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
