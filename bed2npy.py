@@ -72,7 +72,7 @@ idx_split = np.array_split(np.arange(m, dtype=int), args.chunks)
 for c in tqdm(range(args.chunks), desc="Reading chunks"):
 	G_chunk = G[idx_split[c], :].compute().T
 	D[:, idx_split[c]] = convertPlink(G_chunk, args.t)
-	del G, G_chunk
+del G, G_chunk
 
 # Saving 8-bit integer matrix
 np.save(args.o, D)

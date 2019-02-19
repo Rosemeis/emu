@@ -178,8 +178,7 @@ def computeSVD(D, E, f, e, chunks, chunk_N, method, power):
 	for thread in threads:
 		thread.join()
 
-	U = None
-	return W, s
+	return W
 
 # Update E directly from SVD
 @jit("void(i1[:, :], f4[:, :], f4[:], f4[:, :], f4[:], f4[:, :], i8, i8)", nopython=True, nogil=True, cache=True)
@@ -300,13 +299,13 @@ def flashPCAngsd(D, f, e, K, F=None, Pvec=None, M=100, M_tole=1e-5, method="arpa
 		return V, s, U
 	else:
 		# Estimate initial individual allele frequencies
-		W, s = computeSVD(D, E, f, e, chunks, chunk_N, method, svd_iter)
+		W = computeSVD(D, E, f, e, chunks, chunk_N, method, svd_iter)
 		prevW = np.copy(W)
 		print "Individual allele frequencies estimated (1)"
 		
 		# Iterative estimation of individual allele frequencies
 		for iteration in xrange(2, M+1):
-			W, s = computeSVD(D, E, f, e, chunks, chunk_N, method, svd_iter)
+			W = computeSVD(D, E, f, e, chunks, chunk_N, method, svd_iter)
 
 			# Break iterative update if converged
 			diff = rmse(W, prevW, chunks, chunk_N)
@@ -315,7 +314,7 @@ def flashPCAngsd(D, f, e, K, F=None, Pvec=None, M=100, M_tole=1e-5, method="arpa
 				print "Estimation of individual allele frequencies has converged."
 				break
 			prevW = np.copy(W)
-		del W, s, U, prevW
+		del W, prevW
 
 		# Estimate eigenvectors
 		print "Inferring final set of eigenvector(s)."
