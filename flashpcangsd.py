@@ -177,7 +177,7 @@ del V, s # Clear memory
 
 if args.selection:
 	print("Performing selection scan along each PC.")
-	Dsquared = galinskyScan(U[:args.e])
+	Dsquared = shared.galinskyScan(U[:args.e])
 	print("Saving test statistics as " + args.o + ".selection.npy (Binary).")
 	np.save(args.o + ".selection", Dsquared.astype(float, copy=False))
 	del Dsquared # Clear memory
