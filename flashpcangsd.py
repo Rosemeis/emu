@@ -154,7 +154,7 @@ print(str(n) + " samples, " + str(m) + " sites.\n")
 if args.index is not None:
 	print("Estimating guided allele frequencies.")
 	p = np.load(args.index)
-	F = np.empty([m, max(p)+1], dtype=np.float32)
+	F = np.empty((m, max(p)+1), dtype=np.float32)
 	shared.estimateF_guided(D, f, F, p, args.t)
 else:
 	p = None
@@ -177,7 +177,8 @@ del V, s # Clear memory
 
 if args.selection:
 	print("Performing selection scan along each PC.")
-	Dsquared = shared.galinskyScan(U[:args.e], args.t)
+	Dsquared = np.zeros((m, args.e), dtype=np.float32)
+	shared.galinskyScan(U[:args.e], Dsquared, args.t)
 	print("Saving test statistics as " + args.o + ".selection.npy (Binary).")
 	np.save(args.o + ".selection", Dsquared.astype(float, copy=False))
 	del Dsquared # Clear memory

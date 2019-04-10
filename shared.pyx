@@ -170,11 +170,10 @@ cpdef rmse(float[:,:] A, float[:,:] B, int t):
 # Selection scan
 @boundscheck(False)
 @wraparound(False)
-cpdef galinskyScan(float[:,:] U, int t):
+cpdef galinskyScan(float[:,:] U, float[:,:] Dsquared, int t):
 	cdef int e = U.shape[0]
 	cdef int m = U.shape[1]
 	cdef int j, k
-	cdef float[:,:] Dsquared = np.zeros((m, e), dtype=DTYPE)
 	
 	# Loop over different PCs
 	with nogil:
