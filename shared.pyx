@@ -36,7 +36,7 @@ cpdef estimateF(signed char[:,::1] D, float[::1] f, int t):
 # Estimate guided allele frequencies
 @boundscheck(False)
 @wraparound(False)
-cpdef estimateF_guided(signed char[:,::1] D, float[:,::1] F, signed char[::1] p, int t):
+cpdef estimateF_guided(signed char[:,::1] D, float[::1] f, float[:,::1] F, signed char[::1] p, int t):
 	cdef int n = D.shape[0]
 	cdef int m = D.shape[1]
 	cdef int i, j, k
@@ -53,8 +53,8 @@ cpdef estimateF_guided(signed char[:,::1] D, float[:,::1] F, signed char[::1] p,
 							F[j,k] += D[i,j]
 			
 			for k in range(K):
-				if C[j,k] == 0:
-					F[j,k] = 0.0
+				if C[j,k] < 5:
+					F[j,k] = f[j]
 				else:
 					F[j,k] /= float(C[j,k])
 

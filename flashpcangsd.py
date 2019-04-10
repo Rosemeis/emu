@@ -155,7 +155,7 @@ if args.index is not None:
 	print("Estimating guided allele frequencies.")
 	p = np.load(args.index)
 	F = np.empty([m, max(p)+1], dtype=np.float32)
-	shared.estimateF_guided(D, F, p, args.t)
+	shared.estimateF_guided(D, f, F, p, args.t)
 else:
 	p = None
 	F = None
