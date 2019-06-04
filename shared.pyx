@@ -2,7 +2,7 @@ import numpy as np
 cimport numpy as np
 from cython.parallel import prange
 from cython import boundscheck, wraparound
-from libc.math cimport sqrt
+from libc.math cimport sqrt, fabs
 
 # Typedef
 DTYPE = np.float32
@@ -30,7 +30,6 @@ cpdef estimateF(signed char[:,::1] D, float[::1] f, int t):
 				f[j] = 0.0
 			else:
 				f[j] /= float(c[j])
-
 	return f
 
 # Estimate guided allele frequencies
@@ -40,7 +39,7 @@ cpdef estimateF_guided(signed char[:,::1] D, float[::1] f, float[:,::1] F, signe
 	cdef int n = D.shape[0]
 	cdef int m = D.shape[1]
 	cdef int i, j, k
-	cdef int K = max(p) + 1
+	cdef int K = F.shape[1]
 	cdef int[:,:] C = np.zeros((m, K), dtype=DTYPE2)
 
 	with nogil:
@@ -51,6 +50,7 @@ cpdef estimateF_guided(signed char[:,::1] D, float[::1] f, float[:,::1] F, signe
 						if D[i,j] != -9:
 							C[j,k] += 1
 							F[j,k] += D[i,j]
+						break
 			
 			for k in range(K):
 				if C[j,k] < 5:
@@ -85,12 +85,13 @@ cpdef updateE_init_guided(signed char[:,::1] D, float[:,::1] F, signed char[::1]
 	with nogil:
 		for i in prange(n, num_threads=t, schedule='static'):
 			for j in range(m):
-				for k in range(K):
-					if p[i] == k: 
-						if D[i, j] == -9:
+				if D[i,j] == -9:
+					for k in range(K):
+						if p[i] == k: 
 							E[i,j] = F[j,k]
-						else:
-							E[i,j] = D[i,j]
+							break
+				else:
+					E[i,j] = D[i,j]
 
 # Update E directly from SVD
 @boundscheck(False)
@@ -140,18 +141,6 @@ cpdef standardizeMatrix(float[:,::1] E, float[::1] f, int t):
 				E[i,j] -= f[j]
 				E[i,j] /= sqrt(f[j]*(1-f[j]))
 
-# RMSE inner C
-cdef float rmseInner(float A, float B) nogil:
-	cdef float val = 0.0
-	if (A > 0) & (B > 0):
-		val += (A - B)*(A - B)
-	elif (A < 0) & (B < 0):
-		val += (A - B)*(A - B)
-	else:
-		val += (A + B)*(A + B)
-
-	return val
-
 # Root-mean squared error
 @boundscheck(False)
 @wraparound(False)
@@ -164,7 +153,7 @@ cpdef rmse(float[:,:] A, float[:,:] B, int t):
 	with nogil:
 		for i in prange(n, num_threads=t, schedule='static'):
 			for j in range(m):
-				R[i] += rmseInner(A[i,j], B[i,j])
+				R[i] += (A[i,j] - B[i,j])*(A[i,j] - B[i,j])
 	return R
 
 # Selection scan
@@ -180,5 +169,84 @@ cpdef galinskyScan(float[:,:] U, float[:,:] Dsquared, int t):
 		for j in prange(m, num_threads=t, schedule='static'):
 			for k in range(e):
 				Dsquared[j,k] = (U[k,j]**2)*float(m)
-
 	return Dsquared
+
+### Accelerated EM
+# Matrix subtraction
+@boundscheck(False)
+@wraparound(False)
+cpdef matMinus(float[:,:] M1, float[:,:] M2, float[:,:] diffM):
+	cdef int n = M1.shape[0]
+	cdef int m = M1.shape[1]
+	cdef int i, j
+
+	for i in range(n):
+		for j in range(m):
+			diffM[i,j] = M1[i,j]-M2[i,j]
+
+# Matrix sum of squares
+@boundscheck(False)
+@wraparound(False)
+cpdef matSumSquare(float[:,:] M):
+	cdef int n = M.shape[0]
+	cdef int m = M.shape[1]
+	cdef int i, j
+	cdef float res = 0.0
+
+	for i in range(n):
+		for j in range(m):
+			res += M[i,j]*M[i,j]
+	return res
+
+# Update E without D and f for two additional EM steps
+@boundscheck(False)
+@wraparound(False)
+cpdef updateE_SVD_accel(signed char[:,::1] D, float[:,::1] E, float[::1] f, float[:,:] Ws, float[:,:] U, int t):
+	cdef int n = E.shape[0]
+	cdef int m = E.shape[1]
+	cdef int K = Ws.shape[1]
+	cdef int i, j, k
+
+	with nogil:
+		for i in prange(n, num_threads=t, schedule='static'):
+			for j in range(m):
+				if D[i,j] == -9: # Missing site
+					E[i,j] = 0.0
+					for k in range(K):
+						E[i,j] += Ws[i,k]*U[k,j]
+				else:
+					E[i,j] = D[i,j] - f[j]
+
+
+@boundscheck(False)
+@wraparound(False)
+cpdef updateE_SVD_accel2(signed char[:,::1] D, float[:,::1] E, float[::1] f, float[:,:] Ws, float[:,:] U, int t):
+	cdef int n = E.shape[0]
+	cdef int m = E.shape[1]
+	cdef int K = Ws.shape[1]
+	cdef int i, j, k
+
+	with nogil:
+		for i in prange(n, num_threads=t, schedule='static'):
+			for j in range(m):
+				if D[i,j] == -9: # Missing site
+					E[i,j] = 0.0
+					for k in range(K):
+						E[i,j] += Ws[i,k]*U[k,j]
+					E[i,j] += f[j]
+					E[i,j] = min(max(E[i,j], 1e-4), 1-(1e-4))
+					E[i,j] = E[i,j] - f[j]
+				else:
+					E[i,j] = D[i,j] - f[j]
+
+
+@boundscheck(False)
+@wraparound(False)
+cpdef matUpdate(float[:,:] M, float[:,:] diffM_1, float[:,:] diffM_3, float alpha):
+	cdef int n = M.shape[0]
+	cdef int m = M.shape[1]
+	cdef int i, j
+
+	for i in range(n):
+		for j in range(m):
+			M[i,j] = M[i,j] + 2*alpha*diffM_1[i,j] + alpha*alpha*diffM_3[i,j]

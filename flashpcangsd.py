@@ -14,12 +14,21 @@ import shared
 import numpy as np
 import argparse
 from scipy.sparse.linalg import svds
-from sklearn.utils.extmath import randomized_svd
+from sklearn.utils.extmath import randomized_svd, svd_flip
 
 ### Main function ###
-def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, indf_save, output, t):
+def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, indf_save, output, accel, t):
 	n, m = D.shape # Dimensions
 	E = np.empty((n, m), dtype=np.float32)
+
+	if accel:
+		print("Using accelerated EM scheme (SqS3)")
+		diffW_1 = np.empty((n, e), dtype=np.float32)
+		diffW_2 = np.empty((n, e), dtype=np.float32)
+		diffW_3 = np.empty((n, e), dtype=np.float32)
+		diffU_1 = np.empty((e, m), dtype=np.float32)
+		diffU_2 = np.empty((e, m), dtype=np.float32)
+		diffU_3 = np.empty((e, m), dtype=np.float32)
 
 	if W is None:
 		if F is None:
@@ -45,38 +54,93 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 		del E
 		return V, s, U
 	else:
+		if accel:
+			print("Initiating accelerated EM scheme (1)")
 		# Estimate initial individual allele frequencies
 		shared.centerMatrix(E, f, t)
 		if svd_method == "arpack":
 			W, s, U = svds(E, k=e)
+			W, U = svd_flip(W, U)
 		elif svd_method == "halko":
 			W, s, U = randomized_svd(E, e, n_iter=svd_power)
-		prevW = np.copy(W)
-		shared.updateE_SVD(D, E, f, W, s, U, t)
-		print("Individual allele frequencies estimated (1)")
+
+		# Update E matrix based on setting
+		if not accel:
+			shared.updateE_SVD(D, E, f, W, s, U, t)
+			print("Individual allele frequencies estimated (1).")
+		else:
+			W = W*s
+			shared.updateE_SVD_accel(D, E, f, W, U, t)
+		prevU = np.copy(U)
 		
 		# Iterative estimation of individual allele frequencies
 		for iteration in range(2, M+1):
-			shared.centerMatrix(E, f, t)
-			if svd_method == "arpack":
-				W, s, U = svds(E, k=e)
-			elif svd_method == "halko":
-				W, s, U = randomized_svd(E, e, n_iter=svd_power)
-			shared.updateE_SVD(D, E, f, W, s, U, t)
+			if accel:
+				if svd_method == "arpack":
+					W1, s1, U1 = svds(E, k=e)
+					W1, U1 = svd_flip(W1, U1)
+				elif svd_method == "halko":
+					W1, s1, U1 = randomized_svd(E, e, n_iter=svd_power)
+				W1 = W1*s1
+				shared.matMinus(W1, W, diffW_1)
+				shared.matMinus(U1, U, diffU_1)
+				sr2_W = shared.matSumSquare(diffW_1)
+				sr2_U = shared.matSumSquare(diffU_1)
+				shared.updateE_SVD_accel(D, E, f, W1, U1, t)
+				if svd_method == "arpack":
+					W2, s2, U2 = svds(E, k=e)
+					W2, U2 = svd_flip(W2, U2)
+				elif svd_method == "halko":
+					W2, s2, U2 = randomized_svd(E, e, n_iter=svd_power)
+				W2 = W2*s2
+				shared.matMinus(W2, W1, diffW_2)
+				shared.matMinus(U2, U1, diffU_2)
+				
+				# SQUAREM update of W and U SqS3
+				shared.matMinus(diffW_2, diffW_1, diffW_3)
+				shared.matMinus(diffU_2, diffU_1, diffU_3)
+				sv2_W = shared.matSumSquare(diffW_3)
+				sv2_U = shared.matSumSquare(diffU_3)
+				alpha_W = np.sqrt(sr2_W/sv2_W)
+				alpha_U = np.sqrt(sr2_U/sv2_U)
+
+				# New accelerated update
+				shared.matUpdate(W, diffW_1, diffW_3, alpha_W)
+				shared.matUpdate(U, diffU_1, diffU_3, alpha_U)
+				shared.updateE_SVD_accel2(D, E, f, W, U, t)
+			else:
+				shared.centerMatrix(E, f, t)
+				if svd_method == "arpack":
+					W, s, U = svds(E, k=e)
+					W, U = svd_flip(W, U)
+				elif svd_method == "halko":
+					W, s, U = randomized_svd(E, e, n_iter=svd_power)
+				shared.updateE_SVD(D, E, f, W, s, U, t)
 
 			# Break iterative update if converged
-			diff = np.sqrt(np.sum(shared.rmse(W, prevW, t))/(n*e))
+			diff = np.sqrt(np.sum(shared.rmse(U.T, prevU.T, t))/(m*e))
 			print("Individual allele frequencies estimated (" + str(iteration) + "). RMSE=" + str(diff))
 			if diff < M_tole:
 				print("Estimation of individual allele frequencies has converged.")
 				break
-			prevW = np.copy(W)
+			prevU = np.copy(U)
+
+		# Run non-accelerated update to ensure properties of W, s, U
+		if accel:
+			if svd_method == "arpack":
+				W, s, U = svds(E, k=e)
+				W, U = svd_flip(W, U)
+			elif svd_method == "halko":
+				W, s, U = randomized_svd(E, e, n_iter=svd_power)
+			shared.updateE_SVD(D, E, f, W, s, U, t)
+			del W1, W2, s1, s2, U1, U2, diffW_1, diffW_2, diffW_3, diffU_1, diffU_2, diffU_3
+		
 		if indf_save:
 			print("Saving singular matrices for future use (.w.npy, .s.npy, .u.npy).")
 			np.save(output + ".w", W)
 			np.save(output + ".s", s)
 			np.save(output + ".u", U)
-		del W, s, U, prevW
+		del W, s, U, prevU
 
 		# Estimating SVD
 		shared.standardizeMatrix(E, f, t)
@@ -93,7 +157,7 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="FlashPCAngsd")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.3")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.45")
 parser.add_argument("input", metavar="FILE",
 	help="Input file (.npy)")
 parser.add_argument("-e", metavar="INT", type=int,
@@ -102,8 +166,8 @@ parser.add_argument("-k", metavar="INT", type=int,
 	help="Number of eigenvectors to output in final SVD")
 parser.add_argument("-m", metavar="INT", type=int, default=100,
 	help="Maximum iterations for estimation of individual allele frequencies (100)")
-parser.add_argument("-m_tole", metavar="FLOAT", type=float, default=1e-5,
-	help="Tolerance for update in estimation of individual allele frequencies (1e-5)")
+parser.add_argument("-m_tole", metavar="FLOAT", type=float, default=1e-6,
+	help="Tolerance for update in estimation of individual allele frequencies (1e-6)")
 parser.add_argument("-t", metavar="INT", type=int, default=1,
 	help="Number of threads")
 parser.add_argument("-maf", metavar="FLOAT", type=float, default=0.00,
@@ -128,12 +192,14 @@ parser.add_argument("-s", metavar="FILE",
 	help="Singular values (.s.npy)")
 parser.add_argument("-u", metavar="FILE",
 	help="Right singular matrix (.u.npy)")
+parser.add_argument("-accel", action="store_true",
+	help="Accelerated EM")
 parser.add_argument("-o", metavar="OUTPUT", help="Prefix output file name", default="flash")
 args = parser.parse_args()
 
 
 ### Caller ###
-print("FlashPCAngsd 0.4\n")
+print("FlashPCAngsd 0.45\n")
 
 # Set K
 if args.k is None:
@@ -164,10 +230,10 @@ n, m = D.shape
 print(str(n) + " samples, " + str(m) + " sites.\n")
 
 # Guided meta allele frequencies
-if args.index is not None:
+if (args.index is not None) & (args.w is None):
 	print("Estimating guided allele frequencies.")
 	p = np.load(args.index)
-	F = np.empty((m, max(p)+1), dtype=np.float32)
+	F = np.zeros((m, max(p)+1), dtype=np.float32)
 	shared.estimateF_guided(D, f, F, p, args.t)
 else:
 	p, F = None, None
@@ -180,7 +246,6 @@ if args.w is not None:
 	W = np.load(args.w)
 	assert W.shape[0] == n, "Number of samples in W must match D!"
 	s = np.load(args.s)
-	assert s.shape[0] == args.e, "Number of eigenvectors in W, s and U must match -e!"
 	U = np.load(args.u)
 	assert U.shape[1] == m, "Number of sites in U must match D!"
 else:
@@ -190,7 +255,7 @@ else:
 print("Performing FlashPCAngsd.")
 print("Using " + str(args.e) + " eigenvector(s).")
 V, s, U = flashPCAngsd(D, f, args.e, K, args.m, args.m_tole, F, p, W, s, U, args.svd, \
-	args.svd_power, args.indf_save, args.o, args.t)
+	args.svd_power, args.indf_save, args.o, args.accel, args.t)
 
 print("Saving eigenvector(s) as " + args.o + ".eigenvecs.npy (Binary).")
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
