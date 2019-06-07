@@ -17,7 +17,7 @@ from scipy.sparse.linalg import svds
 from sklearn.utils.extmath import randomized_svd, svd_flip
 
 ### Main function ###
-def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, indf_save, output, accel, t):
+def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, indf_save, output, accel, like, t):
 	n, m = D.shape # Dimensions
 	E = np.empty((n, m), dtype=np.float32)
 
@@ -64,6 +64,11 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 		elif svd_method == "halko":
 			W, s, U = randomized_svd(E, e, n_iter=svd_power)
 
+		if like:
+			likeVec = np.zeros(n, dtype=np.float32)
+			shared.logLike(D, f, W, s, U, likeVec, t)
+			print("Log-likelihood: " + str(np.sum(likeVec)))
+
 		# Update E matrix based on setting
 		if not accel:
 			shared.updateE_SVD(D, E, f, W, s, U, t)
@@ -108,6 +113,10 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 				shared.matUpdate(W, diffW_1, diffW_3, alpha_W)
 				shared.matUpdate(U, diffU_1, diffU_3, alpha_U)
 				shared.updateE_SVD_accel2(D, E, f, W, U, t)
+
+				if like:
+					shared.logLike_accel(D, f, W, U, likeVec, t)
+					print("Log-likelihood: " + str(np.sum(likeVec)))
 			else:
 				shared.centerMatrix(E, f, t)
 				if svd_method == "arpack":
@@ -116,6 +125,9 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 				elif svd_method == "halko":
 					W, s, U = randomized_svd(E, e, n_iter=svd_power)
 				shared.updateE_SVD(D, E, f, W, s, U, t)
+				if like:
+					shared.logLike(D, f, W, s, U, likeVec, t)
+					print("Log-likelihood: " + str(np.sum(likeVec)))
 
 			# Break iterative update if converged
 			diff = np.sqrt(np.sum(shared.rmse(U.T, prevU.T, t))/(m*e))
@@ -124,6 +136,8 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 				print("Estimation of individual allele frequencies has converged.")
 				break
 			prevU = np.copy(U)
+		if like:
+			del likeVec
 
 		# Run non-accelerated update to ensure properties of W, s, U
 		if accel:
@@ -194,6 +208,8 @@ parser.add_argument("-u", metavar="FILE",
 	help="Right singular matrix (.u.npy)")
 parser.add_argument("-accel", action="store_true",
 	help="Accelerated EM")
+parser.add_argument("-like", action="store_true",
+	help="Estimate log-likelihood each iteration")
 parser.add_argument("-o", metavar="OUTPUT", help="Prefix output file name", default="flash")
 args = parser.parse_args()
 
@@ -255,7 +271,7 @@ else:
 print("Performing FlashPCAngsd.")
 print("Using " + str(args.e) + " eigenvector(s).")
 V, s, U = flashPCAngsd(D, f, args.e, K, args.m, args.m_tole, F, p, W, s, U, args.svd, \
-	args.svd_power, args.indf_save, args.o, args.accel, args.t)
+	args.svd_power, args.indf_save, args.o, args.accel, args.like, args.t)
 
 print("Saving eigenvector(s) as " + args.o + ".eigenvecs.npy (Binary).")
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))

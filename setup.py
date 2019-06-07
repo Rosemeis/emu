@@ -14,6 +14,13 @@ extensions = [Extension(
 				extra_compile_args=['-fopenmp'],
 				extra_link_args=['-fopenmp'],
 				include_dirs=[numpy.get_include()],
+			),
+			Extension(
+				"halko",
+				["halko.pyx"],
+				extra_compile_args=['-fopenmp'],
+				extra_link_args=['-fopenmp'],
+				include_dirs=[numpy.get_include()],
 			)]
 
 setup(

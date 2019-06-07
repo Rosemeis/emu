@@ -2,7 +2,7 @@ import numpy as np
 cimport numpy as np
 from cython.parallel import prange
 from cython import boundscheck, wraparound
-from libc.math cimport sqrt, fabs
+from libc.math cimport sqrt, fabs, log
 
 # Typedef
 DTYPE = np.float32
@@ -250,3 +250,48 @@ cpdef matUpdate(float[:,:] M, float[:,:] diffM_1, float[:,:] diffM_3, float alph
 	for i in range(n):
 		for j in range(m):
 			M[i,j] = M[i,j] + 2*alpha*diffM_1[i,j] + alpha*alpha*diffM_3[i,j]
+
+
+# Likelihood measure
+@boundscheck(False)
+@wraparound(False)
+cpdef logLike(signed char[:,::1] D, float[::1] f, float[:,:] W, float[:] s, float[:,:] U, float[::1] likeVec, int t):
+	cdef int n = D.shape[0]
+	cdef int m = D.shape[1]
+	cdef int K = s.shape[0]
+	cdef int i, j, k
+	cdef float e
+
+	with nogil:
+		for i in prange(n, num_threads=t, schedule='static'):
+			likeVec[i] = 0.0
+			for j in range(m):
+				if D[i,j] != -9:
+					e = 0.0
+					for k in range(K):
+						e = e + W[i,k]*s[k]*U[k,j]
+					e = e + f[j]
+					e = min(max(e, 0), 1)
+					likeVec[i] = likeVec[i] + (D[i,j]*log(e + 1e-8) + (1 - D[i,j])*log(1 - e + 1e-8))
+
+
+@boundscheck(False)
+@wraparound(False)
+cpdef logLike_accel(signed char[:,::1] D, float[::1] f, float[:,:] Ws, float[:,:] U, float[::1] likeVec, int t):
+	cdef int n = D.shape[0]
+	cdef int m = D.shape[1]
+	cdef int K = Ws.shape[1]
+	cdef int i, j, k
+	cdef float e
+
+	with nogil:
+		for i in prange(n, num_threads=t, schedule='static'):
+			likeVec[i] = 0.0
+			for j in range(m):
+				if D[i,j] != -9:
+					e = 0.0
+					for k in range(K):
+						e = e + Ws[i,k]*U[k,j]
+					e = e + f[j]
+					e = min(max(e, 0), 1)
+					likeVec[i] = likeVec[i] + (D[i,j]*log(e + 1e-8) + (1 - D[i,j])*log(1 - e + 1e-8))
