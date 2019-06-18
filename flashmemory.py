@@ -263,6 +263,7 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 		diffU_1 = np.empty((e, m), dtype=np.float32)
 		diffU_2 = np.empty((e, m), dtype=np.float32)
 		diffU_3 = np.empty((e, m), dtype=np.float32)
+		maxW, maxU = 1.0, 1.0
 
 	if M < 1:
 		print("Warning, no EM-PCA iterations are performed!")
@@ -305,8 +306,14 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 				shared.matMinus(diffU_2, diffU_1, diffU_3)
 				sv2_W = shared.matSumSquare(diffW_3)
 				sv2_U = shared.matSumSquare(diffU_3)
-				alpha_W = np.sqrt(sr2_W/sv2_W)
-				alpha_U = np.sqrt(sr2_U/sv2_U)
+				alpha_W = max(1.0, np.sqrt(sr2_W/sv2_W))
+				alpha_U = max(1.0, np.sqrt(sr2_U/sv2_U))
+				if alpha_W > maxW:
+					alpha_W = maxW
+					maxW = min(8.0, maxW*2)
+				if alpha_U > maxU:
+					alpha_U = maxU
+					maxU = min(8.0, maxU*2)
 
 				# New accelerated update
 				shared.matUpdate(W, diffW_1, diffW_3, alpha_W)
@@ -343,7 +350,7 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="FlashPCAngsd Memory")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.45")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.46")
 parser.add_argument("-D", metavar="FILE",
 	help="Input file (.npy)")
 parser.add_argument("-Dt", metavar="FILE",
@@ -387,7 +394,7 @@ args = parser.parse_args()
 
 
 ### Caller ####
-print("FlashPCAngsd Memory 0.45\n")
+print("FlashPCAngsd Memory 0.46\n")
 assert args.Dt is not None, "Memory efficient method must be provided transposed C-contiguous data matrix!"
 
 # Set K

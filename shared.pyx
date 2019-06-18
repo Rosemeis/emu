@@ -2,7 +2,7 @@ import numpy as np
 cimport numpy as np
 from cython.parallel import prange
 from cython import boundscheck, wraparound
-from libc.math cimport sqrt, fabs, log
+from libc.math cimport sqrt, fabs
 
 # Typedef
 DTYPE = np.float32
@@ -45,12 +45,12 @@ cpdef estimateF_guided(signed char[:,::1] D, float[::1] f, float[:,::1] F, signe
 	with nogil:
 		for j in prange(m, num_threads=t, schedule='static'):
 			for i in range(n):
-				for k in range(K):
-					if p[i] == k:
-						if D[i,j] != -9:
+				if D[i,j] != -9:
+					for k in range(K):
+						if p[i] == k:
 							C[j,k] += 1
 							F[j,k] += D[i,j]
-						break
+							break
 			
 			for k in range(K):
 				if C[j,k] < 5:
@@ -70,13 +70,13 @@ cpdef updateE_init(signed char[:,::1] D, float[::1] f, float[:,::1] E, int t):
 		for i in prange(n, num_threads=t, schedule='static'):
 			for j in range(m):
 				if D[i,j] == -9:
-					E[i,j] = f[j]
+					E[i,j] = 0
 				else:
-					E[i,j] = D[i,j]
+					E[i,j] = D[i,j] - f[j]
 
 @boundscheck(False)
 @wraparound(False)
-cpdef updateE_init_guided(signed char[:,::1] D, float[:,::1] F, signed char[::1] p, float[:,::1] E, int t):
+cpdef updateE_init_guided(signed char[:,::1] D, float[::1] f, float[:,::1] F, signed char[::1] p, float[:,::1] E, int t):
 	cdef int n = D.shape[0]
 	cdef int m = D.shape[1]
 	cdef int i, j, k
@@ -86,12 +86,15 @@ cpdef updateE_init_guided(signed char[:,::1] D, float[:,::1] F, signed char[::1]
 		for i in prange(n, num_threads=t, schedule='static'):
 			for j in range(m):
 				if D[i,j] == -9:
-					for k in range(K):
-						if p[i] == k: 
-							E[i,j] = F[j,k]
-							break
+					if p[i] == -9:
+						E[i,j] = 0
+					else:
+						for k in range(K):
+							if p[i] == k: 
+								E[i,j] = F[j,k] - f[j]
+								break
 				else:
-					E[i,j] = D[i,j]
+					E[i,j] = D[i,j] - f[j]
 
 # Update E directly from SVD
 @boundscheck(False)
@@ -111,21 +114,9 @@ cpdef updateE_SVD(signed char[:,::1] D, float[:,::1] E, float[::1] f, float[:,:]
 						E[i,j] += W[i,k]*s[k]*U[k,j]
 					E[i,j] += f[j]
 					E[i,j] = min(max(E[i,j], 1e-4), 1-(1e-4))
+					E[i,j] -= f[j]
 				else:
-					E[i,j] = D[i,j]
-
-# Center dosage matrix
-@boundscheck(False)
-@wraparound(False)
-cpdef centerMatrix(float[:,::1] E, float[::1] f, int t):
-	cdef int n = E.shape[0]
-	cdef int m = E.shape[1]
-	cdef int i, j
-
-	with nogil:
-		for i in prange(n, num_threads=t, schedule='static'):
-			for j in range(m):
-				E[i,j] -= f[j]
+					E[i,j] = D[i,j] - f[j]
 
 # Standardize dosage matrix
 @boundscheck(False)
@@ -138,7 +129,6 @@ cpdef standardizeMatrix(float[:,::1] E, float[::1] f, int t):
 	with nogil:
 		for i in prange(n, num_threads=t, schedule='static'):
 			for j in range(m):
-				E[i,j] -= f[j]
 				E[i,j] /= sqrt(f[j]*(1-f[j]))
 
 # Root-mean squared error
@@ -214,9 +204,11 @@ cpdef updateE_SVD_accel(signed char[:,::1] D, float[:,::1] E, float[::1] f, floa
 					E[i,j] = 0.0
 					for k in range(K):
 						E[i,j] += Ws[i,k]*U[k,j]
+					E[i,j] += f[j]
+					E[i,j] = min(max(E[i,j], 1e-4), 1-(1e-4))
+					E[i,j] = E[i,j] - f[j]
 				else:
 					E[i,j] = D[i,j] - f[j]
-
 
 @boundscheck(False)
 @wraparound(False)
@@ -233,9 +225,6 @@ cpdef updateE_SVD_accel2(signed char[:,::1] D, float[:,::1] E, float[::1] f, flo
 					E[i,j] = 0.0
 					for k in range(K):
 						E[i,j] += Ws[i,k]*U[k,j]
-					E[i,j] += f[j]
-					E[i,j] = min(max(E[i,j], 1e-4), 1-(1e-4))
-					E[i,j] = E[i,j] - f[j]
 				else:
 					E[i,j] = D[i,j] - f[j]
 
@@ -255,7 +244,7 @@ cpdef matUpdate(float[:,:] M, float[:,:] diffM_1, float[:,:] diffM_3, float alph
 # Likelihood measure
 @boundscheck(False)
 @wraparound(False)
-cpdef logLike(signed char[:,::1] D, float[::1] f, float[:,:] W, float[:] s, float[:,:] U, float[::1] likeVec, int t):
+cpdef frobenius(signed char[:,::1] D, float[::1] f, float[:,:] W, float[:] s, float[:,:] U, float[::1] sumVec, int t):
 	cdef int n = D.shape[0]
 	cdef int m = D.shape[1]
 	cdef int K = s.shape[0]
@@ -264,7 +253,7 @@ cpdef logLike(signed char[:,::1] D, float[::1] f, float[:,:] W, float[:] s, floa
 
 	with nogil:
 		for i in prange(n, num_threads=t, schedule='static'):
-			likeVec[i] = 0.0
+			sumVec[i] = 0.0
 			for j in range(m):
 				if D[i,j] != -9:
 					e = 0.0
@@ -272,12 +261,12 @@ cpdef logLike(signed char[:,::1] D, float[::1] f, float[:,:] W, float[:] s, floa
 						e = e + W[i,k]*s[k]*U[k,j]
 					e = e + f[j]
 					e = min(max(e, 0), 1)
-					likeVec[i] = likeVec[i] + (D[i,j]*log(e + 1e-8) + (1 - D[i,j])*log(1 - e + 1e-8))
+					sumVec[i] = sumVec[i] + (D[i,j] - e)**2
 
 
 @boundscheck(False)
 @wraparound(False)
-cpdef logLike_accel(signed char[:,::1] D, float[::1] f, float[:,:] Ws, float[:,:] U, float[::1] likeVec, int t):
+cpdef frobenius_accel(signed char[:,::1] D, float[::1] f, float[:,:] Ws, float[:,:] U, float[::1] sumVec, int t):
 	cdef int n = D.shape[0]
 	cdef int m = D.shape[1]
 	cdef int K = Ws.shape[1]
@@ -286,7 +275,7 @@ cpdef logLike_accel(signed char[:,::1] D, float[::1] f, float[:,:] Ws, float[:,:
 
 	with nogil:
 		for i in prange(n, num_threads=t, schedule='static'):
-			likeVec[i] = 0.0
+			sumVec[i] = 0.0
 			for j in range(m):
 				if D[i,j] != -9:
 					e = 0.0
@@ -294,4 +283,4 @@ cpdef logLike_accel(signed char[:,::1] D, float[::1] f, float[:,:] Ws, float[:,:
 						e = e + Ws[i,k]*U[k,j]
 					e = e + f[j]
 					e = min(max(e, 0), 1)
-					likeVec[i] = likeVec[i] + (D[i,j]*log(e + 1e-8) + (1 - D[i,j])*log(1 - e + 1e-8))
+					sumVec[i] = sumVec[i] + (D[i,j] - e)**2

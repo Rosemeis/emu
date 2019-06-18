@@ -113,10 +113,13 @@ cpdef matMul_Guide(signed char[:,::1] D, float[::1] f, float[:,::1] F, signed ch
 				C[i,o] = 0.0
 				for j in range(m):
 					if D[i,j] == -9:
-						for k in range(K):
-							if p[i] == k:
-								e = F[j,k] - f[j]
-								break
+						if p[i] == -9:
+							e = 0
+						else:
+							for k in range(K):
+								if p[i] == k:
+									e = F[j,k] - f[j]
+									break
 					else:
 						e = D[i,j] - f[j]
 					C[i,o] = C[i,o] + e*B[j,o]
@@ -138,10 +141,13 @@ cpdef matMulTrans_Guide(signed char[:,::1] Dt, float[::1] f, float[:,::1] F, sig
 				C[j,o] = 0.0
 				for i in range(n):
 					if Dt[j,i] == -9:
-						for k in range(K):
-							if p[i] == k:
-								e = F[j,k] - f[j]
-								break
+						if p[i] == -9:
+							e = 0
+						else:
+							for k in range(K):
+								if p[i] == k:
+									e = F[j,k] - f[j]
+									break
 					else:
 						e = Dt[j,i] - f[j]
 					C[j,o] = C[j,o] + e*B[i,o]
@@ -313,11 +319,14 @@ cpdef matMulFinal_Guide(signed char[:,::1] D, float[::1] f, float[:,::1] F, sign
 				C[i,o] = 0.0
 				for j in range(m):
 					if D[i,j] == -9:
-						for k in range(K):
-							if p[i] == k:
-								e = F[j,k] - f[j]
-								break
-						e = e/(f[j]*(1 - f[j]))
+						if p[i] == -9:
+							e = 0
+						else:
+							for k in range(K):
+								if p[i] == k:
+									e = F[j,k] - f[j]
+									break
+							e = e/(f[j]*(1 - f[j]))
 					else:
 						e = (D[i,j] - f[j])/(f[j]*(1 - f[j]))
 					C[i,o] = C[i,o] + e*B[j,o]
@@ -339,11 +348,14 @@ cpdef matMulTransFinal_Guide(signed char[:,::1] Dt, float[::1] f, float[:,::1] F
 				C[j,o] = 0.0
 				for i in range(n):
 					if Dt[j,i] == -9:
-						for k in range(K):
-							if p[i] == k:
-								e = F[j,k] - f[j]
-								break
-						e = e/(f[j]*(1 - f[j]))
+						if p[i] == -9:
+							e = 0
+						else:
+							for k in range(K):
+								if p[i] == k:
+									e = F[j,k] - f[j]
+									break
+							e = e/(f[j]*(1 - f[j]))
 					else:
 						e = (Dt[j,i] - f[j])/(f[j]*(1 - f[j]))
 					C[j,o] = C[j,o] + e*B[i,o]

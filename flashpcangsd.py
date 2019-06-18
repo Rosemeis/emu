@@ -17,7 +17,7 @@ from scipy.sparse.linalg import svds
 from sklearn.utils.extmath import randomized_svd, svd_flip
 
 ### Main function ###
-def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, indf_save, output, accel, like, t):
+def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, indf_save, output, accel, cost, t):
 	n, m = D.shape # Dimensions
 	E = np.empty((n, m), dtype=np.float32)
 
@@ -29,12 +29,13 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 		diffU_1 = np.empty((e, m), dtype=np.float32)
 		diffU_2 = np.empty((e, m), dtype=np.float32)
 		diffU_3 = np.empty((e, m), dtype=np.float32)
+		maxW, maxU = 1.0, 1.0
 
 	if W is None:
 		if F is None:
 			shared.updateE_init(D, f, E, t) # Initiate E
 		else:
-			shared.updateE_init_guided(D, F, p, E, t) # Guided initiation of E
+			shared.updateE_init_guided(D, f, F, p, E, t) # Guided initiation of E
 			del p, F
 	else:
 		shared.updateE_SVD(D, E, f, W, s, U, t) # Initiate E based on previous estimates
@@ -57,17 +58,16 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 		if accel:
 			print("Initiating accelerated EM scheme (1)")
 		# Estimate initial individual allele frequencies
-		shared.centerMatrix(E, f, t)
 		if svd_method == "arpack":
 			W, s, U = svds(E, k=e)
 			W, U = svd_flip(W, U)
 		elif svd_method == "halko":
 			W, s, U = randomized_svd(E, e, n_iter=svd_power)
 
-		if like:
-			likeVec = np.zeros(n, dtype=np.float32)
-			shared.logLike(D, f, W, s, U, likeVec, t)
-			print("Log-likelihood: " + str(np.sum(likeVec)))
+		if cost:
+			sumVec = np.zeros(n, dtype=np.float32)
+			shared.frobenius(D, f, W, s, U, sumVec, t)
+			print("Frobenius: " + str(np.sum(sumVec)))
 
 		# Update E matrix based on setting
 		if not accel:
@@ -106,28 +106,33 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 				shared.matMinus(diffU_2, diffU_1, diffU_3)
 				sv2_W = shared.matSumSquare(diffW_3)
 				sv2_U = shared.matSumSquare(diffU_3)
-				alpha_W = np.sqrt(sr2_W/sv2_W)
-				alpha_U = np.sqrt(sr2_U/sv2_U)
+				alpha_W = max(1.0, np.sqrt(sr2_W/sv2_W))
+				alpha_U = max(1.0, np.sqrt(sr2_U/sv2_U))
+				if alpha_W > maxW:
+					alpha_W = maxW
+					maxW = min(8.0, maxW*2)
+				if alpha_U > maxU:
+					alpha_U = maxU
+					maxU = min(8.0, maxU*2)
 
 				# New accelerated update
 				shared.matUpdate(W, diffW_1, diffW_3, alpha_W)
 				shared.matUpdate(U, diffU_1, diffU_3, alpha_U)
-				shared.updateE_SVD_accel2(D, E, f, W, U, t)
+				shared.updateE_SVD_accel(D, E, f, W, U, t)
 
-				if like:
-					shared.logLike_accel(D, f, W, U, likeVec, t)
-					print("Log-likelihood: " + str(np.sum(likeVec)))
+				if cost:
+					shared.frobenius_accel(D, f, W, U, sumVec, t)
+					print("Frobenius: " + str(np.sum(sumVec)))
 			else:
-				shared.centerMatrix(E, f, t)
 				if svd_method == "arpack":
 					W, s, U = svds(E, k=e)
 					W, U = svd_flip(W, U)
 				elif svd_method == "halko":
 					W, s, U = randomized_svd(E, e, n_iter=svd_power)
 				shared.updateE_SVD(D, E, f, W, s, U, t)
-				if like:
-					shared.logLike(D, f, W, s, U, likeVec, t)
-					print("Log-likelihood: " + str(np.sum(likeVec)))
+				if cost:
+					shared.frobenius(D, f, W, s, U, sumVec, t)
+					print("Frobenius: " + str(np.sum(sumVec)))
 
 			# Break iterative update if converged
 			diff = np.sqrt(np.sum(shared.rmse(U.T, prevU.T, t))/(m*e))
@@ -136,8 +141,8 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 				print("Estimation of individual allele frequencies has converged.")
 				break
 			prevU = np.copy(U)
-		if like:
-			del likeVec
+		if cost:
+			del sumVec
 
 		# Run non-accelerated update to ensure properties of W, s, U
 		if accel:
@@ -171,7 +176,7 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="FlashPCAngsd")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.45")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.46")
 parser.add_argument("input", metavar="FILE",
 	help="Input file (.npy)")
 parser.add_argument("-e", metavar="INT", type=int,
@@ -208,14 +213,14 @@ parser.add_argument("-u", metavar="FILE",
 	help="Right singular matrix (.u.npy)")
 parser.add_argument("-accel", action="store_true",
 	help="Accelerated EM")
-parser.add_argument("-like", action="store_true",
-	help="Estimate log-likelihood each iteration")
+parser.add_argument("-cost", action="store_true",
+	help="Output min-cost each iteration (DEBUG)")
 parser.add_argument("-o", metavar="OUTPUT", help="Prefix output file name", default="flash")
 args = parser.parse_args()
 
 
 ### Caller ###
-print("FlashPCAngsd 0.45\n")
+print("FlashPCAngsd 0.46\n")
 
 # Set K
 if args.k is None:
@@ -271,7 +276,7 @@ else:
 print("Performing FlashPCAngsd.")
 print("Using " + str(args.e) + " eigenvector(s).")
 V, s, U = flashPCAngsd(D, f, args.e, K, args.m, args.m_tole, F, p, W, s, U, args.svd, \
-	args.svd_power, args.indf_save, args.o, args.accel, args.like, args.t)
+	args.svd_power, args.indf_save, args.o, args.accel, args.cost, args.t)
 
 print("Saving eigenvector(s) as " + args.o + ".eigenvecs.npy (Binary).")
 np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
