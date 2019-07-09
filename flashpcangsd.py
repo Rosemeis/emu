@@ -108,12 +108,6 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 				sv2_U = shared.matSumSquare(diffU_3)
 				alpha_W = max(1.0, np.sqrt(sr2_W/sv2_W))
 				alpha_U = max(1.0, np.sqrt(sr2_U/sv2_U))
-				if alpha_W > maxW:
-					alpha_W = maxW
-					maxW = min(8.0, maxW*2)
-				if alpha_U > maxU:
-					alpha_U = maxU
-					maxU = min(8.0, maxU*2)
 
 				# New accelerated update
 				shared.matUpdate(W, diffW_1, diffW_3, alpha_W)
@@ -176,7 +170,7 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="FlashPCAngsd")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.46")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.465")
 parser.add_argument("input", metavar="FILE",
 	help="Input file (.npy)")
 parser.add_argument("-e", metavar="INT", type=int,
@@ -185,8 +179,8 @@ parser.add_argument("-k", metavar="INT", type=int,
 	help="Number of eigenvectors to output in final SVD")
 parser.add_argument("-m", metavar="INT", type=int, default=100,
 	help="Maximum iterations for estimation of individual allele frequencies (100)")
-parser.add_argument("-m_tole", metavar="FLOAT", type=float, default=1e-6,
-	help="Tolerance for update in estimation of individual allele frequencies (1e-6)")
+parser.add_argument("-m_tole", metavar="FLOAT", type=float, default=5e-7,
+	help="Tolerance for update in estimation of individual allele frequencies (5e-7)")
 parser.add_argument("-t", metavar="INT", type=int, default=1,
 	help="Number of threads")
 parser.add_argument("-maf", metavar="FLOAT", type=float, default=0.00,
@@ -220,7 +214,7 @@ args = parser.parse_args()
 
 
 ### Caller ###
-print("FlashPCAngsd 0.46\n")
+print("FlashPCAngsd 0.465\n")
 
 # Set K
 if args.k is None:

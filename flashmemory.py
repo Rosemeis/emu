@@ -287,16 +287,13 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 		# Iterative estimation of individual allele frequencies
 		for iteration in range(2, M+1):
 			if accel:
-				if iteration > 2:
-					W1, s1, U1 = customDomainSVD_accel(D, Dt, f, e, W, U, svd_power, t)
-				else:
-					W1, s1, U1 = customSVD_accel(D, Dt, f, e, W, U, svd_power, t)
+				W1, s1, U1 = customDomainSVD_accel(D, Dt, f, e, W, U, svd_power, t)
 				W1 = W1*s1
 				shared.matMinus(W1, W, diffW_1)
 				shared.matMinus(U1, U, diffU_1)
 				sr2_W = shared.matSumSquare(diffW_1)
 				sr2_U = shared.matSumSquare(diffU_1)
-				W2, s2, U2 = customSVD_accel(D, Dt, f, e, W1, U1, svd_power, t)
+				W2, s2, U2 = customDomainSVD_accel(D, Dt, f, e, W1, U1, svd_power, t)
 				W2 = W2*s2
 				shared.matMinus(W2, W1, diffW_2)
 				shared.matMinus(U2, U1, diffU_2)
@@ -308,12 +305,6 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 				sv2_U = shared.matSumSquare(diffU_3)
 				alpha_W = max(1.0, np.sqrt(sr2_W/sv2_W))
 				alpha_U = max(1.0, np.sqrt(sr2_U/sv2_U))
-				if alpha_W > maxW:
-					alpha_W = maxW
-					maxW = min(8.0, maxW*2)
-				if alpha_U > maxU:
-					alpha_U = maxU
-					maxU = min(8.0, maxU*2)
 
 				# New accelerated update
 				shared.matUpdate(W, diffW_1, diffW_3, alpha_W)
@@ -350,7 +341,7 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="FlashPCAngsd Memory")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.46")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.465")
 parser.add_argument("-D", metavar="FILE",
 	help="Input file (.npy)")
 parser.add_argument("-Dt", metavar="FILE",
@@ -361,12 +352,10 @@ parser.add_argument("-k", metavar="INT", type=int,
 	help="Number of eigenvectors to output in final SVD")
 parser.add_argument("-m", metavar="INT", type=int, default=100,
 	help="Maximum iterations for estimation of individual allele frequencies (100)")
-parser.add_argument("-m_tole", metavar="FLOAT", type=float, default=1e-6,
-	help="Tolerance for update in estimation of individual allele frequencies (1e-6)")
+parser.add_argument("-m_tole", metavar="FLOAT", type=float, default=5e-7,
+	help="Tolerance for update in estimation of individual allele frequencies (5e-7)")
 parser.add_argument("-t", metavar="INT", type=int, default=1,
 	help="Number of threads")
-parser.add_argument("-maf", metavar="FLOAT", type=float, default=0.00,
-	help="Threshold for minor allele frequencies (0.00)")
 parser.add_argument("-selection", action="store_true",
 	help="Perform PC-based selection scan (Galinsky et al. 2016)")
 parser.add_argument("-maf_save", action="store_true",
@@ -394,7 +383,7 @@ args = parser.parse_args()
 
 
 ### Caller ####
-print("FlashPCAngsd Memory 0.46\n")
+print("FlashPCAngsd Memory 0.465\n")
 assert args.Dt is not None, "Memory efficient method must be provided transposed C-contiguous data matrix!"
 
 # Set K
@@ -410,6 +399,7 @@ D = np.load(args.D)
 Dt = np.load(args.Dt)
 assert D.dtype == np.int8, "NumPy array must be of 8-bit integer format (np.int8)!"
 assert Dt.dtype == np.int8, "NumPy array must be of 8-bit integer format (np.int8)!"
+assert Dt.shape[0] == D.shape[1], "Shapes doesn't match!"
 n, m = D.shape
 
 # Population allele frequencies
@@ -417,15 +407,6 @@ print("Estimating population allele frequencies.")
 f = np.empty(m, dtype=np.float32)
 shared.estimateF(D, f, args.t)
 
-# Removing rare variants
-if args.maf > 0.0:
-	mask = (f >= args.maf) & (f <= (1 - args.maf))
-	print("Filtering variants with a MAF filter of " + str(args.maf) + ".")
-	f = np.compress(mask, f)
-	D = np.compress(mask, D, axis=1)
-	Dt = np.compress(mask, Dt, axis=0)
-
-n, m = D.shape
 print(str(n) + " samples, " + str(m) + " sites.\n")
 
 # Guided meta allele frequencies
