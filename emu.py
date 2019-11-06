@@ -1,10 +1,10 @@
 """
-Cython implementation of FlashPCAngsd.
+Cython implementation of EMU.
 Performs iterative SVD of allele count matrix (EM-PCA) based on either ARPACK or Halko method.
 
 Jonas Meisner, Siyang Liu and Anders Albrechtsen
 
-Example usage: python flashpcangsd.py matrix.npy -e 2 -t 64 -o flash
+Example usage: python emu.py matrix.npy -e 2 -t 64 -o flash
 """
 
 __author__ = "Jonas Meisner"
@@ -169,8 +169,8 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 
 
 ##### Argparse #####
-parser = argparse.ArgumentParser(prog="FlashPCAngsd")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.465")
+parser = argparse.ArgumentParser(prog="EMU")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.5")
 parser.add_argument("input", metavar="FILE",
 	help="Input file (.npy)")
 parser.add_argument("-e", metavar="INT", type=int,
@@ -214,7 +214,7 @@ args = parser.parse_args()
 
 
 ### Caller ###
-print("FlashPCAngsd 0.465\n")
+print("EMU 0.5\n")
 
 # Set K
 if args.k is None:

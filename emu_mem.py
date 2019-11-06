@@ -1,10 +1,10 @@
 """
-Cython implementation of FlashPCAngsd (Memory based).
+Cython implementation of EMU-mem (Memory based).
 Performs iterative SVD of allele count matrix (EM-PCA) based on custom Halko method.
 
 Jonas Meisner, Siyang Liu and Anders Albrechtsen
 
-Example usage: python flashmemory.py -D matrix.npy -Dt matrix.trans.npy -e 2 -t 64 -o flash
+Example usage: python emu_mem.py -D matrix.npy -Dt matrix.trans.npy -e 2 -t 64 -o flash
 """
 
 __author__ = "Jonas Meisner"
@@ -340,8 +340,8 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 
 
 ##### Argparse #####
-parser = argparse.ArgumentParser(prog="FlashPCAngsd Memory")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.465")
+parser = argparse.ArgumentParser(prog="EMU-mem")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.5")
 parser.add_argument("-D", metavar="FILE",
 	help="Input file (.npy)")
 parser.add_argument("-Dt", metavar="FILE",
@@ -383,7 +383,7 @@ args = parser.parse_args()
 
 
 ### Caller ####
-print("FlashPCAngsd Memory 0.465\n")
+print("EMU-mem 0.5\n")
 assert args.Dt is not None, "Memory efficient method must be provided transposed C-contiguous data matrix!"
 
 # Set K

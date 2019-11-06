@@ -30,7 +30,6 @@ cpdef estimateF(signed char[:,::1] D, float[::1] f, int t):
 				f[j] = 0.0
 			else:
 				f[j] /= float(c[j])
-	return f
 
 # Estimate guided allele frequencies
 @boundscheck(False)

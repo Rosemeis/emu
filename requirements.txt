@@ -1,0 +1,6 @@
+numpy
+scipy
+cython
+scikit-learn
+pandas
+pandas_plink==1.2.31
