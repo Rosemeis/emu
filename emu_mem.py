@@ -432,7 +432,7 @@ else:
 	W, s, U = None, None, None
 
 # FlashPCAngsd
-print("Performing FlashPCAngsd Memory.")
+print("Performing EMU Memory variant.")
 print("Using " + str(args.e) + " eigenvector(s).")
 V, s, U = flashMemory(D, Dt, f, args.e, K, args.m, args.m_tole, F, p, W, s, U, args.svd_power, \
 	args.indf_save, args.o, args.accel, args.t)

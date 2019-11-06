@@ -267,7 +267,7 @@ else:
 	W, s, U = None, None, None
 
 # FlashPCAngsd
-print("Performing FlashPCAngsd.")
+print("Performing EMU.")
 print("Using " + str(args.e) + " eigenvector(s).")
 V, s, U = flashPCAngsd(D, f, args.e, K, args.m, args.m_tole, F, p, W, s, U, args.svd, \
 	args.svd_power, args.indf_save, args.o, args.accel, args.cost, args.t)

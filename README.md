@@ -2,14 +2,15 @@
 Version 0.5
 
 ## Get EMU and build
-Install Python library dependencies.
-```
-pip install --user -r requirements.txt
-```
 Clone repository and build (It is assumed that OpenMP is installed).
-```
+```bash
 git clone https://github.com/Rosemeis/emu.git
 cd emu/
+
+# Install library dependencies
+pip install --user -r requirements.txt
+
+# Build
 python setup.py build_ext --inplace
 ```
 
