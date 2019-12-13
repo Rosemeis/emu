@@ -77,11 +77,8 @@ python emu.py -npy test.npy -index test.index.npy -e 2 -t 64 -o test.emu -w test
 ```
 
 ### Memory efficient implementation
-A more memory efficient implementation has been added. It is based of the Halko algorithm but using custom matrix multiplications that can handle decomposed matrices. Due to the requirement of parallelization (speed), user also needs to specify the transposed 8-bit integer matrix in C-contiguous memory. Therefore the memory requirement of this implementation will be around, 2xMxN bytes. It is also assumed that MAF filtering has been performed prior to running this method. As of now, this implementation only accepts binary Numpy matrices (.npy).
+A more memory efficient implementation has been added. It is based of the Halko algorithm but using custom matrix multiplications that can handle decomposed matrices.
 ```bash
-# Create and save transposed matrix in C-contiguous memory
-python -c "import numpy as np; D=np.load('test.npy'); np.save('test.trans.npy', np.ascontiguousarray(D.T, dtype=np.int8))"
-
 # Example run
-python emu_mem.py -D test.npy -Dt test.trans.npy -e 2 -t 64 -accel -o test.memory.emu.accel
+python emu_mem.py -npy test.npy -e 2 -t 64 -accel -o test.memory.emu.accel
 ``` 
