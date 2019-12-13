@@ -24,7 +24,10 @@ cpdef estimateF(signed char[:,::1] D, float[::1] f, int t):
 			for i in range(n):
 				if D[i,j] != -9:
 					c[j] += 1
-					f[j] += D[i,j]
+					if D[i,j] == 2: # Heterozygous site
+						f[j] += 0.5
+					else:
+						f[j] += D[i,j]
 
 			if c[j] == 0:
 				f[j] = 0.0
@@ -48,7 +51,10 @@ cpdef estimateF_guided(signed char[:,::1] D, float[::1] f, float[:,::1] F, signe
 					for k in range(K):
 						if p[i] == k:
 							C[j,k] += 1
-							F[j,k] += D[i,j]
+							if D[i,j] == 2: # Heterozygous site
+								F[j,k] += 0.5
+							else:
+								F[j,k] += D[i,j]
 							break
 			
 			for k in range(K):
@@ -70,6 +76,8 @@ cpdef updateE_init(signed char[:,::1] D, float[::1] f, float[:,::1] E, int t):
 			for j in range(m):
 				if D[i,j] == -9:
 					E[i,j] = 0
+				elif D[i,j] == 2: # Heterozygous site
+					E[i,j] = 0.5 - f[j]
 				else:
 					E[i,j] = D[i,j] - f[j]
 
@@ -92,6 +100,8 @@ cpdef updateE_init_guided(signed char[:,::1] D, float[::1] f, float[:,::1] F, si
 							if p[i] == k: 
 								E[i,j] = F[j,k] - f[j]
 								break
+				elif D[i,j] == 2: # Heterozygous site
+					E[i,j] = 0.5 - f[j]
 				else:
 					E[i,j] = D[i,j] - f[j]
 
@@ -114,6 +124,8 @@ cpdef updateE_SVD(signed char[:,::1] D, float[:,::1] E, float[::1] f, float[:,:]
 					E[i,j] += f[j]
 					E[i,j] = min(max(E[i,j], 1e-4), 1-(1e-4))
 					E[i,j] -= f[j]
+				elif D[i,j] == 2: # Heterozygous site
+					E[i,j] = 0.5 - f[j]
 				else:
 					E[i,j] = D[i,j] - f[j]
 
@@ -206,6 +218,8 @@ cpdef updateE_SVD_accel(signed char[:,::1] D, float[:,::1] E, float[::1] f, floa
 					E[i,j] += f[j]
 					E[i,j] = min(max(E[i,j], 1e-4), 1-(1e-4))
 					E[i,j] = E[i,j] - f[j]
+				elif D[i,j] == 2: # Heterozygous site
+					E[i,j] = 0.5 - f[j]
 				else:
 					E[i,j] = D[i,j] - f[j]
 
@@ -224,6 +238,8 @@ cpdef updateE_SVD_accel2(signed char[:,::1] D, float[:,::1] E, float[::1] f, flo
 					E[i,j] = 0.0
 					for k in range(K):
 						E[i,j] += Ws[i,k]*U[k,j]
+				elif D[i,j] == 2: # Heterozygous site
+					E[i,j] = 0.5 - f[j]
 				else:
 					E[i,j] = D[i,j] - f[j]
 
@@ -260,7 +276,10 @@ cpdef frobenius(signed char[:,::1] D, float[::1] f, float[:,:] W, float[:] s, fl
 						e = e + W[i,k]*s[k]*U[k,j]
 					e = e + f[j]
 					e = min(max(e, 0), 1)
-					sumVec[i] = sumVec[i] + (D[i,j] - e)**2
+					if D[i,j] == 2:
+						sumVec[i] = sumVec[i] + (0.5 - e)**2
+					else:
+						sumVec[i] = sumVec[i] + (D[i,j] - e)**2
 
 
 @boundscheck(False)
@@ -282,4 +301,7 @@ cpdef frobenius_accel(signed char[:,::1] D, float[::1] f, float[:,:] Ws, float[:
 						e = e + Ws[i,k]*U[k,j]
 					e = e + f[j]
 					e = min(max(e, 0), 1)
-					sumVec[i] = sumVec[i] + (D[i,j] - e)**2
+					if D[i,j] == 2:
+						sumVec[i] = sumVec[i] + (0.5 - e)**2
+					else:
+						sumVec[i] = sumVec[i] + (D[i,j] - e)**2

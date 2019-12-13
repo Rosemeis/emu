@@ -2,9 +2,9 @@
 Cython implementation of EMU.
 Performs iterative SVD of allele count matrix (EM-PCA) based on either ARPACK or Halko method.
 
-Jonas Meisner, Siyang Liu and Anders Albrechtsen
+Jonas Meisner, Siyang Liu, Mingxi Huang and Anders Albrechtsen
 
-Example usage: python emu.py matrix.npy -e 2 -t 64 -o flash
+Example usage: python emu.py -npy matrix.npy -e 2 -t 64 -accel -o flash
 """
 
 __author__ = "Jonas Meisner"
@@ -171,8 +171,12 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="EMU")
 parser.add_argument("--version", action="version", version="%(prog)s alpha 0.5")
-parser.add_argument("input", metavar="FILE",
-	help="Input file (.npy)")
+parser.add_argument("-npy", metavar="FILE",
+	help="Input numpy binary file (.npy)")
+parser.add_argument("-bin", metavar="FILE",
+	help="Read data matrix directly from binary file (.bin) - 8-bit signed chars")
+parser.add_argument("-ind", metavar="INT", type=int,
+	help="Number of individuals, MUST be specified if reading directly from binary file")
 parser.add_argument("-e", metavar="INT", type=int,
 	help="Number of eigenvectors to use in IAF estimation")
 parser.add_argument("-k", metavar="INT", type=int,
@@ -196,9 +200,9 @@ parser.add_argument("-indf_save", action="store_true",
 parser.add_argument("-index", metavar="FILE",
 	help="Index for guided allele frequencies")
 parser.add_argument("-svd", metavar="STRING", default="arpack",
-	help="Method for performing truncated SVD (ARPACK/Randomized)")
-parser.add_argument("-svd_power", metavar="INT", type=int, default=4,
-	help="Number of power iterations in randomized SVD")
+	help="Method for performing truncated SVD (arpack/halko)")
+parser.add_argument("-svd_power", metavar="INT", type=int, default=3,
+	help="Number of power iterations in randomized SVD (Halko)")
 parser.add_argument("-w", metavar="FILE",
 	help="Left singular matrix (.w.npy)")
 parser.add_argument("-s", metavar="FILE",
@@ -223,10 +227,19 @@ else:
 	K = args.k
 
 # Read in single-read matrix
-print("Reading in single-read sampling matrix from binary NumPy file.")
-# Read from binary NumPy file. Expects np.int8 data format
-D = np.load(args.input)
-assert D.dtype == np.int8, "NumPy array must be of 8-bit integer format (np.int8)!"
+if args.npy is not None:
+	print("Reading in single-read sampling matrix from binary NumPy file.")
+	# Read from binary NumPy file. Expects np.int8 data format
+	D = np.load(args.npy)
+	assert D.dtype == np.int8, "NumPy array must be of 8-bit integer format (np.int8)!"
+else:
+	print("Reading in single-read sampling matrix from binary file.")
+	assert args.bin is not None, "No valid input given! Must provide .npy or .bin file!"
+	assert args.ind is not None, "Number of individuals must be specified, when reading from binary file!"
+	# Read from binary file. Must be 8-bit signed chars (np.int8)
+	with open(args.bin, "rb") as bfile:
+		D = np.fromfile(bfile, dtype=np.int8)
+		D = D.reshape(args.ind, D.shape[0]//args.ind)
 n, m = D.shape
 
 # Population allele frequencies

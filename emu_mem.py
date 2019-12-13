@@ -2,9 +2,9 @@
 Cython implementation of EMU-mem (Memory based).
 Performs iterative SVD of allele count matrix (EM-PCA) based on custom Halko method.
 
-Jonas Meisner, Siyang Liu and Anders Albrechtsen
+Jonas Meisner, Siyang Liu, Mingxi Huang and Anders Albrechtsen
 
-Example usage: python emu_mem.py -D matrix.npy -Dt matrix.trans.npy -e 2 -t 64 -o flash
+Example usage: python emu_mem.py -npy matrix.npy -e 2 -t 64 -accel -o flash
 """
 
 __author__ = "Jonas Meisner"
@@ -16,13 +16,14 @@ import numpy as np
 import argparse
 from sklearn.utils.extmath import svd_flip
 from scipy import linalg
+from time import time
 
 ### Custom SVD functions ###
 # Range finder of Q
-def range_finder(D, Dt, f, e, F, p, W, s, U, svd_power, t):
+def range_finder(D, f, e, F, p, W, s, U, svd_power, t):
 	n, m = D.shape
 	K = e + 10
-	C = np.empty((m, K), dtype=np.float32)
+	C = np.zeros((m, K), dtype=np.float32)
 
 	# Sample Gaussian vectors
 	np.random.seed(0)
@@ -31,34 +32,41 @@ def range_finder(D, Dt, f, e, F, p, W, s, U, svd_power, t):
 	# Power iterations
 	for pow_i in range(svd_power):
 		if (F is None) & (W is None):
-			halko.matMulTrans_Freq(Dt, f, Q, C, t)
+			C.fill(0)
+			halko.matMulTrans_Freq(D, f, Q, C, t)
 			C, _ = linalg.lu(C, permute_l=True)
+			Q = np.zeros((n, K), dtype=np.float32)
 			halko.matMul_Freq(D, f, C, Q, t)
 			Q, _ = linalg.lu(Q, permute_l=True)
 		elif (W is None):
-			halko.matMulTrans_Guide(Dt, f, F, p, Q, C, t)
+			C.fill(0)
+			halko.matMulTrans_Guide(D, f, F, p, Q, C, t)
 			C, _ = linalg.lu(C, permute_l=True)
+			Q = np.zeros((n, K), dtype=np.float32)
 			halko.matMul_Guide(D, f, F, p, C, Q, t)
 			Q, _ = linalg.lu(Q, permute_l=True)
 		else:
-			halko.matMulTrans_SVD(Dt, f, W.T, s, U.T, Q, C, t)
+			C.fill(0)
+			halko.matMulTrans_SVD(D, f, W.T, s, U.T, Q, C, t)
 			C, _ = linalg.lu(C, permute_l=True)
+			Q = np.zeros((n, K), dtype=np.float32)
 			halko.matMul_SVD(D, f, W, s, U, C, Q, t)
 			Q, _ = linalg.lu(Q, permute_l=True)
+	C.fill(0)
 	if (F is None) & (W is None):
-		halko.matMulTrans_Freq(Dt, f, Q, C, t)
+		halko.matMulTrans_Freq(D, f, Q, C, t)
 	elif (W is None):
-		halko.matMulTrans_Guide(Dt, f, F, p, Q, C, t)
+		halko.matMulTrans_Guide(D, f, F, p, Q, C, t)
 	else:
-		halko.matMulTrans_SVD(Dt, f, W.T, s, U.T, Q, C, t)
+		halko.matMulTrans_SVD(D, f, W.T, s, U.T, Q, C, t)
 	Q, _ = linalg.qr(C, mode='economic')
 	return Q
 
 # Range finder of Q when mapping back to domain for E=WSU.T
-def range_finder_domain(D, Dt, f, e, W, s, U, svd_power, t):
+def range_finder_domain(D, f, e, W, s, U, svd_power, t):
 	n, m = D.shape
 	K = e + 10
-	C = np.empty((m, K), dtype=np.float32)
+	C = np.zeros((m, K), dtype=np.float32)
 
 	# Sample Gaussian vectors
 	np.random.seed(0)
@@ -66,19 +74,22 @@ def range_finder_domain(D, Dt, f, e, W, s, U, svd_power, t):
 
 	# Power iterations
 	for pow_i in range(svd_power):
-		halko.matMulTrans_SVD_domain(Dt, f, W.T, s, U.T, Q, C, t)
+		C.fill(0)
+		halko.matMulTrans_SVD_domain(D, f, W.T, s, U.T, Q, C, t)
 		C, _ = linalg.lu(C, permute_l=True)
+		Q = np.zeros((n, K), dtype=np.float32)
 		halko.matMul_SVD_domain(D, f, W, s, U, C, Q, t)
 		Q, _ = linalg.lu(Q, permute_l=True)
-	halko.matMulTrans_SVD_domain(Dt, f, W.T, s, U.T, Q, C, t)
+	C.fill(0)
+	halko.matMulTrans_SVD_domain(D, f, W.T, s, U.T, Q, C, t)
 	Q, _ = linalg.qr(C, mode='economic')
 	return Q
 
 # Range finder of Q for final iteration
-def range_finder_final(D, Dt, f, e, F, p, W, s, U, svd_power, t):
+def range_finder_final(D, f, e, F, p, W, s, U, svd_power, t):
 	n, m = D.shape
 	K = e + 10
-	C = np.empty((m, K), dtype=np.float32)
+	C = np.zeros((m, K), dtype=np.float32)
 
 	# Sample Gaussian vectors
 	np.random.seed(0)
@@ -87,34 +98,41 @@ def range_finder_final(D, Dt, f, e, F, p, W, s, U, svd_power, t):
 	# Power iterations
 	for pow_i in range(svd_power):
 		if (F is None) & (W is None):
-			halko.matMulTransFinal_Freq(Dt, f, Q, C, t)
+			C.fill(0)
+			halko.matMulTransFinal_Freq(D, f, Q, C, t)
 			C, _ = linalg.lu(C, permute_l=True)
+			Q = np.zeros((n, K), dtype=np.float32)
 			halko.matMulFinal_Freq(D, f, C, Q, t)
 			Q, _ = linalg.lu(Q, permute_l=True)
 		elif (W is None):
-			halko.matMulTransFinal_Guide(Dt, f, F, p, Q, C, t)
+			C.fill(0)
+			halko.matMulTransFinal_Guide(D, f, F, p, Q, C, t)
 			C, _ = linalg.lu(C, permute_l=True)
+			Q = np.zeros((n, K), dtype=np.float32)
 			halko.matMulFinal_Guide(D, f, F, p, C, Q, t)
 			Q, _ = linalg.lu(Q, permute_l=True)
 		else:
-			halko.matMulTransFinal_SVD(Dt, f, W.T, s, U.T, Q, C, t)
+			C.fill(0)
+			halko.matMulTransFinal_SVD(D, f, W.T, s, U.T, Q, C, t)
 			C, _ = linalg.lu(C, permute_l=True)
+			Q = np.zeros((n, K), dtype=np.float32)
 			halko.matMulFinal_SVD(D, f, W, s, U, C, Q, t)
 			Q, _ = linalg.lu(Q, permute_l=True)
+	C.fill(0)
 	if (F is None) & (W is None):
-		halko.matMulTransFinal_Freq(Dt, f, Q, C, t)
+		halko.matMulTransFinal_Freq(D, f, Q, C, t)
 	elif (W is None):
-		halko.matMulTransFinal_Guide(Dt, f, F, p, Q, C, t)
+		halko.matMulTransFinal_Guide(D, f, F, p, Q, C, t)
 	else:
-		halko.matMulTransFinal_SVD(Dt, f, W.T, s, U.T, Q, C, t)
+		halko.matMulTransFinal_SVD(D, f, W.T, s, U.T, Q, C, t)
 	Q, _ = linalg.qr(C, mode='economic')
 	return Q
 
 # Acceleration - Range finder of Q
-def range_finder_accel(D, Dt, f, e, Ws, U, svd_power, t):
+def range_finder_accel(D, f, e, Ws, U, svd_power, t):
 	n, m = D.shape
 	K = e + 10
-	C = np.empty((m, K), dtype=np.float32)
+	C = np.zeros((m, K), dtype=np.float32)
 
 	# Sample Gaussian vectors
 	np.random.seed(0)
@@ -122,19 +140,22 @@ def range_finder_accel(D, Dt, f, e, Ws, U, svd_power, t):
 
 	# Power iterations
 	for pow_i in range(svd_power):
-		halko.matMulTrans_SVD_accel(Dt, f, Ws.T, U.T, Q, C, t)
+		C.fill(0)
+		halko.matMulTrans_SVD_accel(D, f, Ws.T, U.T, Q, C, t)
 		C, _ = linalg.lu(C, permute_l=True)
+		Q = np.zeros((n, K), dtype=np.float32)
 		halko.matMul_SVD_accel(D, f, Ws, U, C, Q, t)
 		Q, _ = linalg.lu(Q, permute_l=True)
-	halko.matMulTrans_SVD_accel(Dt, f, Ws.T, U.T, Q, C, t)
+	C.fill(0)
+	halko.matMulTrans_SVD_accel(D, f, Ws.T, U.T, Q, C, t)
 	Q, _ = linalg.qr(C, mode='economic')
 	return Q
 
 # Acceleration - Range finder of Q when mapping back to domain for E=WSU.T
-def range_finder_domain_accel(D, Dt, f, e, Ws, U, svd_power, t):
+def range_finder_domain_accel(D, f, e, Ws, U, svd_power, t):
 	n, m = D.shape
 	K = e + 10
-	C = np.empty((m, K), dtype=np.float32)
+	C = np.zeros((m, K), dtype=np.float32)
 
 	# Sample Gaussian vectors
 	np.random.seed(0)
@@ -142,18 +163,21 @@ def range_finder_domain_accel(D, Dt, f, e, Ws, U, svd_power, t):
 
 	# Power iterations
 	for pow_i in range(svd_power):
-		halko.matMulTrans_SVD_domain_accel(Dt, f, Ws.T, U.T, Q, C, t)
+		C.fill(0)
+		halko.matMulTrans_SVD_domain_accel(D, f, Ws.T, U.T, Q, C, t)
 		C, _ = linalg.lu(C, permute_l=True)
+		Q = np.zeros((n, K), dtype=np.float32)
 		halko.matMul_SVD_domain_accel(D, f, Ws, U, C, Q, t)
 		Q, _ = linalg.lu(Q, permute_l=True)
-	halko.matMulTrans_SVD_domain_accel(Dt, f, Ws.T, U.T, Q, C, t)
+	C.fill(0)
+	halko.matMulTrans_SVD_domain_accel(D, f, Ws.T, U.T, Q, C, t)
 	Q, _ = linalg.qr(C, mode='economic')
 	return Q
 
 # Iterative SVD
-def customSVD(D, Dt, f, e, F, p, W, s, U, svd_power, t):
+def customSVD(D, f, e, F, p, W, s, U, svd_power, t):
 	n, m = D.shape
-	Q = range_finder(D, Dt, f, e, F, p, W, s, U, svd_power, t)
+	Q = range_finder(D, f, e, F, p, W, s, U, svd_power, t)
 	Bt = np.zeros((n, Q.shape[1]), dtype=np.float32)
 
 	# B.T = dot(E.T, Q)
@@ -174,9 +198,9 @@ def customSVD(D, Dt, f, e, F, p, W, s, U, svd_power, t):
 	return V[:e,:].T, s[:e], U[:,:e].T
 
 # Map to domain SVD
-def customDomainSVD(D, Dt, f, e, W, s, U, svd_power, t):
+def customDomainSVD(D, f, e, W, s, U, svd_power, t):
 	n, m = D.shape
-	Q = range_finder_domain(D, Dt, f, e, W, s, U, svd_power, t)
+	Q = range_finder_domain(D, f, e, W, s, U, svd_power, t)
 	Bt = np.zeros((n, Q.shape[1]), dtype=np.float32)
 
 	# B.T = dot(E.T, Q)
@@ -192,9 +216,9 @@ def customDomainSVD(D, Dt, f, e, W, s, U, svd_power, t):
 	return V[:e,:].T, s[:e], U[:,:e].T
 
 # Final SVD
-def customFinalSVD(D, Dt, f, e, F, p, W, s, U, svd_power, t):
+def customFinalSVD(D, f, e, F, p, W, s, U, svd_power, t):
 	n, m = D.shape
-	Q = range_finder_final(D, Dt, f, e, F, p, W, s, U, svd_power, t)
+	Q = range_finder_final(D, f, e, F, p, W, s, U, svd_power, t)
 	Bt = np.zeros((n, Q.shape[1]), dtype=np.float32)
 
 	# B.T = dot(E.T, Q)
@@ -215,9 +239,9 @@ def customFinalSVD(D, Dt, f, e, F, p, W, s, U, svd_power, t):
 	return V[:e,:].T, s[:e], U[:,:e].T
 
 # Acceleration - Iterative SVD
-def customSVD_accel(D, Dt, f, e, Ws, U, svd_power, t):
+def customSVD_accel(D, f, e, Ws, U, svd_power, t):
 	n, m = D.shape
-	Q = range_finder_accel(D, Dt, f, e, Ws, U, svd_power, t)
+	Q = range_finder_accel(D, f, e, Ws, U, svd_power, t)
 	Bt = np.zeros((n, Q.shape[1]), dtype=np.float32)
 
 	# B.T = dot(E.T, Q)
@@ -233,9 +257,9 @@ def customSVD_accel(D, Dt, f, e, Ws, U, svd_power, t):
 	return V[:e,:].T, s[:e], U[:,:e].T
 
 # Acceleration - Map to domain SVD
-def customDomainSVD_accel(D, Dt, f, e, Ws, U, svd_power, t):
+def customDomainSVD_accel(D, f, e, Ws, U, svd_power, t):
 	n, m = D.shape
-	Q = range_finder_domain_accel(D, Dt, f, e, Ws, U, svd_power, t)
+	Q = range_finder_domain_accel(D, f, e, Ws, U, svd_power, t)
 	Bt = np.zeros((n, Q.shape[1]), dtype=np.float32)
 
 	# B.T = dot(E.T, Q)
@@ -252,7 +276,7 @@ def customDomainSVD_accel(D, Dt, f, e, Ws, U, svd_power, t):
 
 
 ### Main function ###
-def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, output, accel, t):
+def flashMemory(D, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, output, accel, t):
 	n, m = D.shape # Dimensions
 
 	if accel:
@@ -268,16 +292,16 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 	if M < 1:
 		print("Warning, no EM-PCA iterations are performed!")
 		print("Inferring set of eigenvector(s).")
-		V, s, U = customFinalSVD(D, Dt, f, e, F, p, W, s, U, svd_power, t)
+		V, s, U = customFinalSVD(D, f, e, F, p, W, s, U, svd_power, t)
 		return V, s, U
 	else:
 		# Estimate initial individual allele frequencies
 		if accel:
 			print("Initiating accelerated EM scheme (1)")
 		if (W is None):
-			W, s, U = customSVD(D, Dt, f, e, F, p, W, s, U, svd_power, t)
+			W, s, U = customSVD(D, f, e, F, p, W, s, U, svd_power, t)
 		else:
-			W, s, U = customDomainSVD(D, Dt, f, e, W, s, U, svd_power, t)
+			W, s, U = customDomainSVD(D, f, e, W, s, U, svd_power, t)
 		if not accel:
 			print("Individual allele frequencies estimated (1).")
 		else:
@@ -287,13 +311,13 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 		# Iterative estimation of individual allele frequencies
 		for iteration in range(2, M+1):
 			if accel:
-				W1, s1, U1 = customDomainSVD_accel(D, Dt, f, e, W, U, svd_power, t)
+				W1, s1, U1 = customDomainSVD_accel(D, f, e, W, U, svd_power, t)
 				W1 = W1*s1
 				shared.matMinus(W1, W, diffW_1)
 				shared.matMinus(U1, U, diffU_1)
 				sr2_W = shared.matSumSquare(diffW_1)
 				sr2_U = shared.matSumSquare(diffU_1)
-				W2, s2, U2 = customDomainSVD_accel(D, Dt, f, e, W1, U1, svd_power, t)
+				W2, s2, U2 = customDomainSVD_accel(D, f, e, W1, U1, svd_power, t)
 				W2 = W2*s2
 				shared.matMinus(W2, W1, diffW_2)
 				shared.matMinus(U2, U1, diffU_2)
@@ -310,7 +334,7 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 				shared.matUpdate(W, diffW_1, diffW_3, alpha_W)
 				shared.matUpdate(U, diffU_1, diffU_3, alpha_U)
 			else:
-				W, s, U = customDomainSVD(D, Dt, f, e, W, s, U, svd_power, t)
+				W, s, U = customDomainSVD(D, f, e, W, s, U, svd_power, t)
 
 			# Break iterative update if converged
 			diff = np.sqrt(np.sum(shared.rmse(U.T, prevU.T, t))/(m*e))
@@ -322,7 +346,7 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 		del prevU
 
 		if accel:
-			W, s, U = customDomainSVD_accel(D, Dt, f, e, W, U, svd_power, t)
+			W, s, U = customDomainSVD_accel(D, f, e, W, U, svd_power, t)
 			del W1, W2, s1, s2, U1, U2, diffW_1, diffW_2, diffW_3, diffU_1, diffU_2, diffU_3
 
 		if indf_save:
@@ -333,7 +357,7 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 
 		# Estimating SVD
 		print("Inferring set of eigenvector(s).")
-		V, s, U = customFinalSVD(D, Dt, f, e, F, p, W, s, U, svd_power, t)
+		V, s, U = customFinalSVD(D, f, e, F, p, W, s, U, svd_power, t)
 		del W
 		
 		return V, s, U
@@ -342,10 +366,12 @@ def flashMemory(D, Dt, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="EMU-mem")
 parser.add_argument("--version", action="version", version="%(prog)s alpha 0.5")
-parser.add_argument("-D", metavar="FILE",
+parser.add_argument("-npy", metavar="FILE",
 	help="Input file (.npy)")
-parser.add_argument("-Dt", metavar="FILE",
-	help="Input file (transposed) (.npy)")
+parser.add_argument("-bin", metavar="FILE",
+	help="Read data matrix directly from binary file (.bin) - 8-bit signed chars")
+parser.add_argument("-ind", metavar="INT", type=int,
+	help="Number of individuals, MUST be specified if reading directly from binary file")
 parser.add_argument("-e", metavar="INT", type=int,
 	help="Number of eigenvectors to use in IAF estimation")
 parser.add_argument("-k", metavar="INT", type=int,
@@ -366,9 +392,7 @@ parser.add_argument("-indf_save", action="store_true",
 	help="Save estimated singular matrices")
 parser.add_argument("-index", metavar="FILE",
 	help="Index for guided allele frequencies")
-parser.add_argument("-svd", metavar="STRING", default="arpack",
-	help="Method for performing truncated SVD (ARPACK/Randomized)")
-parser.add_argument("-svd_power", metavar="INT", type=int, default=4,
+parser.add_argument("-svd_power", metavar="INT", type=int, default=3,
 	help="Number of power iterations in randomized SVD")
 parser.add_argument("-w", metavar="FILE",
 	help="Left singular matrix (.w.npy)")
@@ -384,7 +408,6 @@ args = parser.parse_args()
 
 ### Caller ####
 print("EMU-mem 0.5\n")
-assert args.Dt is not None, "Memory efficient method must be provided transposed C-contiguous data matrix!"
 
 # Set K
 if args.k is None:
@@ -393,13 +416,19 @@ else:
 	K = args.k
 
 # Read in single-read matrix
-print("Reading in single-read sampling matrices from binary NumPy files.")
-# Read from binary NumPy file. Expects np.int8 data format
-D = np.load(args.D)
-Dt = np.load(args.Dt)
-assert D.dtype == np.int8, "NumPy array must be of 8-bit integer format (np.int8)!"
-assert Dt.dtype == np.int8, "NumPy array must be of 8-bit integer format (np.int8)!"
-assert Dt.shape[0] == D.shape[1], "Shapes doesn't match!"
+if args.npy is not None:
+	print("Reading in single-read sampling matrix from binary NumPy file.")
+	# Read from binary NumPy file. Expects np.int8 data format
+	D = np.load(args.npy)
+	assert D.dtype == np.int8, "NumPy array must be of 8-bit integer format (np.int8)!"
+else:
+	print("Reading in single-read sampling matrix from binary file.")
+	assert args.bin is not None, "No valid input given! Must provide .npy or .bin file!"
+	assert args.ind is not None, "Number of individuals must be specified, when reading from binary file!"
+	# Read from binary file. Must be 8-bit signed chars (np.int8)
+	with open(args.bin, "rb") as bfile:
+		D = np.fromfile(bfile, dtype=np.int8)
+		D = D.reshape(args.ind, D.shape[0]//args.ind)
 n, m = D.shape
 
 # Population allele frequencies
@@ -432,9 +461,9 @@ else:
 	W, s, U = None, None, None
 
 # FlashPCAngsd
-print("Performing EMU Memory variant.")
+print("Performing EMU-mem variant.")
 print("Using " + str(args.e) + " eigenvector(s).")
-V, s, U = flashMemory(D, Dt, f, args.e, K, args.m, args.m_tole, F, p, W, s, U, args.svd_power, \
+V, s, U = flashMemory(D, f, args.e, K, args.m, args.m_tole, F, p, W, s, U, args.svd_power, \
 	args.indf_save, args.o, args.accel, args.t)
 
 print("Saving eigenvector(s) as " + args.o + ".eigenvecs.npy (Binary).")

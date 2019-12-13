@@ -18,19 +18,14 @@ cpdef convertBed(signed char[:,::1] D, float[:,::1] G):
 	cdef int n = D.shape[0]
 	cdef int m = D.shape[1]
 	cdef int i, j
-	cdef double r
 	for i in range(n):
 		for j in range(m):
 			if isnan(G[i,j]): # Missing site
 				D[i,j] = -9
 			elif G[i,j] == 0.0:
 				D[i,j] = 1
-			elif G[i,j] == 1.0:
-				r = np.random.rand()
-				if r < 0.5:
-					D[i,j] = 0
-				else:
-					D[i,j] = 1
+			elif G[i,j] == 1.0: # Heterozygous site
+				D[i,j] = 2
 			elif G[i,j] == 2.0:
 				D[i,j] = 0
 
