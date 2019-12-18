@@ -11,12 +11,13 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import shared
+import reader
 import halko
 import numpy as np
 import argparse
+import subprocess
 from sklearn.utils.extmath import svd_flip
 from scipy import linalg
-from time import time
 
 ### Custom SVD functions ###
 # Range finder of Q
@@ -363,15 +364,20 @@ def flashMemory(D, f, e, K, M, M_tole, F, p, W, s, U, svd_power, indf_save, outp
 		return V, s, U
 
 
+# Find length of PLINK files
+def extract_length(filename):
+	process = subprocess.Popen(['wc', '-l', filename], stdout=subprocess.PIPE)
+	result, err = process.communicate()
+	return int(result.split()[0])
+
+
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="EMU-mem")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.5")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.6")
 parser.add_argument("-npy", metavar="FILE",
 	help="Input file (.npy)")
-parser.add_argument("-bin", metavar="FILE",
-	help="Read data matrix directly from binary file (.bin) - 8-bit signed chars")
-parser.add_argument("-ind", metavar="INT", type=int,
-	help="Number of individuals, MUST be specified if reading directly from binary file")
+parser.add_argument("-plink", metavar="FILE-PREFIX",
+	help="Prefix for PLINK files (.bed, .bim, .fam)")
 parser.add_argument("-e", metavar="INT", type=int,
 	help="Number of eigenvectors to use in IAF estimation")
 parser.add_argument("-k", metavar="INT", type=int,
@@ -407,7 +413,7 @@ args = parser.parse_args()
 
 
 ### Caller ####
-print("EMU-mem 0.5\n")
+print("EMU-mem 0.6\n")
 
 # Set K
 if args.k is None:
@@ -421,15 +427,15 @@ if args.npy is not None:
 	# Read from binary NumPy file. Expects np.int8 data format
 	D = np.load(args.npy)
 	assert D.dtype == np.int8, "NumPy array must be of 8-bit integer format (np.int8)!"
+	n, m = D.shape
 else:
-	print("Reading in single-read sampling matrix from binary file.")
-	assert args.bin is not None, "No valid input given! Must provide .npy or .bin file!"
-	assert args.ind is not None, "Number of individuals must be specified, when reading from binary file!"
-	# Read from binary file. Must be 8-bit signed chars (np.int8)
-	with open(args.bin, "rb") as bfile:
-		D = np.fromfile(bfile, dtype=np.int8)
-		D = D.reshape(args.ind, D.shape[0]//args.ind)
-n, m = D.shape
+	print("Reading in single-read sampling matrix from PLINK files.")
+	assert args.plink is not None, "No valid input given! Must use '-npy' or '-plink'!"
+	# Finding length of .fam and .bim file and read .bed file into NumPy array
+	n = extract_length(args.plink + ".fam")
+	m = extract_length(args.plink + ".bim")
+	D = np.zeros((n, m), dtype=np.int8)
+	reader.readBed(args.plink + ".bed", D, n, m)
 
 # Population allele frequencies
 print("Estimating population allele frequencies.")

@@ -1,5 +1,5 @@
 # EMU
-Version 0.5
+Version 0.6
 
 ## Get EMU and build
 Clone repository and build (It is assumed that OpenMP is installed).
@@ -15,55 +15,33 @@ python setup.py build_ext --inplace
 ```
 
 ## Usage
-### Convert binary PLINK files into .npy. We rely on the pandas-plink (v. 1.2.31) to read PLINK files in the current EMU version. We are working on a custom PLINK reader for future versions.
-```bash
-# Give the PLINK file prefix
-python convertMat.py -plink test -o test
-```
-
-### Convert binary PLINK .bed file into normal binary (8-bit signed char)
-```bash
-# Give the PLINK file prefix
-python convertMat.py -plink test -binary -o test
-``` 
-
-### Convert binary PLINK .bed file into normal binary in blocks (8-bit signed char)
-```bash
-# Give the PLINK file prefix
-python convertMat.py -plink test -binary -block -block_size 4096 -o test
-``` 
-
-EMU can therefore read any binary genotype matrix file given that the entries are stored in signed chars.
-
-### Convert matrix into .npy (Deprecated! Old custom format - Legacy)
-```bash
-# Without generating index vector for guidance
-python convertMat.py -mat test.mat.gz -o test
-
-# Generating index vector for guidance (using .ped file)
-python convertMat.py -mat test.mat.gz -ped test.ped -o test
-```
-
 ### Running EMU
+EMU can work on PLINK files directly or load data from a NumPy array (np.int8 - signed char).
 ```bash
 # Help
 python emu.py -h
 
-# Without guidance
+# Using binary NumPy file (.npy)
 python emu.py -npy test.npy -e 2 -t 64 -o test.emu
+
+# Using PLINK files directly (.bed, .bim, .fam) - Give prefix
+python emu.py -plink test -e 2 -t 64 -o test.emu
 
 # With guidance
 python emu.py -npy test.npy -index test.index.npy -e 2 -t 64 -o test.emu
+```
 
-# Using binary file (.bin) - need also to include number of individuals (-ind)
-python emu.py -bin test.bin -ind 100 -index test.index.npy -e 2 -t 64 -o test.emu
+### Convert binary PLINK files into .npy.
+```bash
+# Give PLINK prefix
+python convertMat.py -plink test -o test
 ```
 
 ### Acceleration (Recommended)
 An acceleration scheme can now be used with both SVD options (arpack or halko) using "-accel". Each iteration will be longer as 3 steps are performed but the overall number of iterations for convergence is decreased significantly.
 ```bash
 # Acceleration with Halko
-python emu.py -npy test.npy -index test.index.npy -e 2 -t 64 -svd halko -accel -o test.emu.accel
+python emu.py -npy test.npy -index test.index.npy -e 2 -t 64 -accel -o test.emu.accel
 ```
 
 ### Saving and loading factor matrices

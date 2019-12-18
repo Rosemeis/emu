@@ -7,7 +7,6 @@ extensions = [Extension(
 				["reader.pyx"],
 				extra_compile_args=['-g0'],
 				include_dirs=[numpy.get_include()],
-				language="c++"
 			),
 			Extension(
 				"shared",
