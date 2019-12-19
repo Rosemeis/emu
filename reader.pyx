@@ -4,13 +4,7 @@ cimport numpy as np
 from cython import boundscheck, wraparound
 from libc.stdio cimport fopen, fclose, FILE, fread
 
-DTYPE = np.int8
-ctypedef np.int8_t DTYPE_t
-
-# Set seed
-np.random.seed(0)
-
-# Read BED file
+# Read .bed file
 @boundscheck(False)
 @wraparound(False)
 cpdef readBed(str bedfile, signed char[:,::1] D, int n, int m):
