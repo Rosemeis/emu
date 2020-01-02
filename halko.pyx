@@ -4,480 +4,628 @@ from cython.parallel import prange
 from cython import boundscheck, wraparound
 from libc.math cimport sqrt
 
-### Custom Halko functions (based on the scikit-learn implementation)
-## Centered computations
-# dot(E, Q) - SVD
+# Typedef
+DTYPE = np.int32
+ctypedef np.int32_t DTYPE_t
+
+##### Functions for 2-bits #####
+# Estimate population allele frequencies
 @boundscheck(False)
 @wraparound(False)
-cpdef matMul_SVD(signed char[:,::1] D, float[::1] f, float[:,:] W, float[:] s, float[:,:] U, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = s.shape[0]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
-
-	with nogil:
-		for i in prange(n, num_threads=t, schedule='static'):
-			for j in range(m):
-				if D[i,j] == -9:
-					e = 0.0
-					for k in range(K):
-						e = e + W[i,k]*s[k]*U[k,j]
-				elif D[i,j] == 2:
-					e = 0.5 - f[j]
-				else:
-					e = D[i,j] - f[j]
-				for o in range(O):
-					C[i,o] = C[i,o] + e*B[j,o]
-
-# dot(E.T, Q) - SVD
-@boundscheck(False)
-@wraparound(False)
-cpdef matMulTrans_SVD(signed char[:,::1] D, float[::1] f, float[:,:] W, float[:] s, float[:,:] U, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = s.shape[0]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
+cpdef estimateF(unsigned char[:,::1] D, float[::1] f, int Bi, int n, int m, int t):
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, b, bytepart
+	cdef int[:] c = np.zeros(m, dtype=DTYPE)
 
 	with nogil:
 		for j in prange(m, num_threads=t, schedule='static'):
-			for i in range(n):
-				if D[i,j] == -9:
-					e = 0.0
-					for k in range(K):
-						e = e + U[j,k]*s[k]*W[k,i]
-				elif D[i,j] == 2:
-					e = 0.5 - f[j]
-				else:
-					e = D[i,j] - f[j]
-				for o in range(O):
-					C[j,o] = C[j,o] + e*B[i,o]
+			i = 0
+			for b in range(Bi):
+				byte = D[j,b]
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						c[j] = c[j] + 1
+						if code == 2:
+							f[j] = f[j] + 0.5
+						else:
+							f[j] = f[j] + code
 
-# dot(E, Q) - Freq
+					byte = byte >> 2
+					i = i + 1
+					if i == n:
+						f[j] = f[j]/float(c[j])
+						break
+
+# Estimate guided allele frequencies
 @boundscheck(False)
 @wraparound(False)
-cpdef matMul_Freq(signed char[:,::1] D, float[::1] f, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int O = C.shape[1]
-	cdef int i, j, o
-	cdef float e
-
-	with nogil:
-		for i in prange(n, num_threads=t, schedule='static'):
-			for j in range(m):
-				if D[i,j] == -9:
-					e = 0.0
-				elif D[i,j] == 2:
-					e = 0.5 - f[j]
-				else:
-					e = D[i,j] - f[j]
-				for o in range(O):
-					C[i,o] = C[i,o] + e*B[j,o]
-
-# C = dot(E.T, Q) - Freq
-@boundscheck(False)
-@wraparound(False)
-cpdef matMulTrans_Freq(signed char[:,::1] D, float[::1] f, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int O = C.shape[1]
-	cdef int i, j, o
-	cdef float e
-
-	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
-			for i in range(n):
-				if D[i,j] == -9:
-					e = 0.0
-				elif D[i,j] == 2:
-					e = 0.5 - f[j]
-				else:
-					e = D[i,j] - f[j]
-				for o in range(O):
-					C[j,o] = C[j,o] + e*B[i,o]
-
-# dot(E, Q) - Guide
-@boundscheck(False)
-@wraparound(False)
-cpdef matMul_Guide(signed char[:,::1] D, float[::1] f, float[:,::1] F, signed char[:] p, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
+cpdef estimateF_guided(unsigned char[:,::1] D, float[::1] f, float[:,::1] F, signed char[::1] p, \
+						int Bi, int n, int m, int t):
 	cdef int K = F.shape[1]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, k, b, bytepart
+	cdef int[:,:] C = np.zeros((m, K), dtype=DTYPE)
 
 	with nogil:
-		for i in prange(n, num_threads=t, schedule='static'):
-			for j in range(m):
-				if D[i,j] == -9:
-					if p[i] == -9:
-						e = 0
-					else:
+		for j in prange(m, num_threads=t, schedule='static'):
+			i = 0
+			for b in range(Bi):
+				byte = D[j,b]
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
 						for k in range(K):
 							if p[i] == k:
-								e = F[j,k] - f[j]
+								C[j,k] = C[j,k] + 1
+								if code == 2:
+									F[j,k] = F[j,k] + 0.5
+								else:
+									F[j,k] = F[j,k] + code
 								break
-				elif D[i,j] == 2:
-					e = 0.5 - f[j]
-				else:
-					e = D[i,j] - f[j]
-				for o in range(O):
-					C[i,o] = C[i,o] + e*B[j,o]
 
-# dot(E.T, Q) - Guide
-@boundscheck(False)
-@wraparound(False)
-cpdef matMulTrans_Guide(signed char[:,::1] D, float[::1] f, float[:,::1] F, signed char[:] p, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = F.shape[1]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
-
-	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
-			for i in range(n):
-				if D[i,j] == -9:
-					if p[i] == -9:
-						e = 0
-					else:
+					byte = byte >> 2
+					i = i + 1
+					if i == n:
 						for k in range(K):
-							if p[i] == k:
-								e = F[j,k] - f[j]
-								break
-				elif D[i,j] == 2:
-					e = 0.5 - f[j]
-				else:
-					e = D[i,j] - f[j]
-				for o in range(O):
-					C[j,o] = C[j,o] + e*B[i,o]
+							if C[j,k] < 5:
+								F[j,k] = f[j]
+							else:
+								F[j,k] = F[j,k]/float(C[j,k])
+						break
 
 
-## Mapped back to domain
-# dot(E, Q) - SVD
+### Frequency functions
+# Matrix Multiplication from byte matrix - dot(E, X)
 @boundscheck(False)
 @wraparound(False)
-cpdef matMul_SVD_domain(signed char[:,::1] D, float[::1] f, float[:,:] W, float[:] s, float[:,:] U, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = s.shape[0]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
-
-	with nogil:
-		for i in prange(n, num_threads=t, schedule='static'):
-			for j in range(m):
-				if D[i,j] == -9:
-					e = 0.0
-					for k in range(K):
-						e = e + W[i,k]*s[k]*U[k,j]
-					e = e + f[j]
-					e = min(max(e, 1e-4), 1-(1e-4))
-					e = e - f[j]
-				elif D[i,j] == 2:
-					e = 0.5 - f[j]
-				else:
-					e = D[i,j] - f[j]
-				for o in range(O):
-					C[i,o] = C[i,o] + e*B[j,o]
-
-# dot(E.T, Q) - SVD
-@boundscheck(False)
-@wraparound(False)
-cpdef matMulTrans_SVD_domain(signed char[:,::1] D, float[::1] f, float[:,:] W, float[:] s, float[:,:] U, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = s.shape[0]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
+cpdef matMul_Freq(unsigned char[:,::1] D, float[::1] f, float[:,::1] X, float[:,::1] Y, \
+					int Bi, int n, int m, int t):
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, k, b, bytepart
 	cdef float e
 
 	with nogil:
 		for j in prange(m, num_threads=t, schedule='static'):
-			for i in range(n):
-				if D[i,j] == -9:
-					e = 0.0
-					for k in range(K):
-						e = e + U[j,k]*s[k]*W[k,i]
-					e = e + f[j]
-					e = min(max(e, 1e-4), 1-(1e-4))
-					e = e - f[j]
-				elif D[i,j] == 2:
-					e = 0.5 - f[j]
-				else:
-					e = D[i,j] - f[j]
-				for o in range(O):
-					C[j,o] = C[j,o] + e*B[i,o]
-
-
-## Standardized computations for final output
-# dot(E, Q) - SVD
-@boundscheck(False)
-@wraparound(False)
-cpdef matMulFinal_SVD(signed char[:,::1] D, float[::1] f, float[:,:] W, float[:] s, float[:,:] U, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = s.shape[0]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
-
-	with nogil:
-		for i in prange(n, num_threads=t, schedule='static'):
-			for j in range(m):
-				if D[i,j] == -9:
-					e = 0.0
-					for k in range(K):
-						e = e + W[i,k]*s[k]*U[k,j]
-					e = e/(f[j]*(1 - f[j]))
-				elif D[i,j] == 2:
-					e = (0.5 - f[j])/(f[j]*(1 - f[j]))
-				else:
-					e = (D[i,j] - f[j])/(f[j]*(1 - f[j]))
-				for o in range(O):
-					C[i,o] = C[i,o] + e*B[j,o]
-
-# dot(E.T, Q) - SVD
-@boundscheck(False)
-@wraparound(False)
-cpdef matMulTransFinal_SVD(signed char[:,::1] D, float[::1] f, float[:,:] W, float[:] s, float[:,:] U, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = s.shape[0]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
-
-	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
-			for i in range(n):
-				if D[i,j] == -9:
-					e = 0.0
-					for k in range(K):
-						e = e + U[j,k]*s[k]*W[k,i]
-					e = e/(f[j]*(1 - f[j]))
-				elif D[i,j] == 2:
-					e = (0.5 - f[j])/(f[j]*(1 - f[j]))
-				else:
-					e = (D[i,j] - f[j])/(f[j]*(1 - f[j]))
-				for o in range(O):
-					C[j,o] = C[j,o] + e*B[i,o]
-
-# dot(E, Q) - Freq
-@boundscheck(False)
-@wraparound(False)
-cpdef matMulFinal_Freq(signed char[:,::1] D, float[::1] f, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
-
-	with nogil:
-		for i in prange(n, num_threads=t, schedule='static'):
-			for j in range(m):
-				if D[i,j] == -9:
-					e = 0.0
-				elif D[i,j] == 2:
-					e = (0.5 - f[j])/(f[j]*(1 - f[j]))
-				else:
-					e = (D[i,j] - f[j])/(f[j]*(1 - f[j]))
-				for o in range(O):
-					C[i,o] = C[i,o] + e*B[j,o]
-
-# dot(E.T, Q) - Freq
-@boundscheck(False)
-@wraparound(False)
-cpdef matMulTransFinal_Freq(signed char[:,::1] D, float[::1] f, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
-
-	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
-			for i in range(n):
-				if D[i,j] == -9:
-					e = 0.0
-				elif D[i,j] == 2:
-					e = (0.5 - f[j])/(f[j]*(1 - f[j]))
-				else:
-					e = (D[i,j] - f[j])/(f[j]*(1 - f[j]))
-				for o in range(O):
-					C[j,o] = C[j,o] + e*B[i,o]
-
-# dot(E, Q) - Guide
-@boundscheck(False)
-@wraparound(False)
-cpdef matMulFinal_Guide(signed char[:,::1] D, float[::1] f, float[:,::1] F, signed char[:] p, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = F.shape[1]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
-
-	with nogil:
-		for i in prange(n, num_threads=t, schedule='static'):
-			for j in range(m):
-				if D[i,j] == -9:
-					if p[i] == -9:
-						e = 0
-					else:
+			i = 0
+			for b in range(Bi):
+				byte = D[j,b]
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = 0.5 - f[j]
+						else:
+							e = code - f[j]
 						for k in range(K):
-							if p[i] == k:
-								e = (F[j,k] - f[j])/(f[j]*(1 - f[j]))
-								break
-				elif D[i,j] == 2:
-					e = (0.5 - f[j])/(f[j]*(1 - f[j]))
-				else:
-					e = (D[i,j] - f[j])/(f[j]*(1 - f[j]))
-				for o in range(O):
-					C[i,o] = C[i,o] + e*B[j,o]
+							Y[j,k] = Y[j,k] + e*X[i,k]
 
-# dot(E.T, Q) - Guide
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+# Trans Matrix Multiplication from byte matrix - dot(E.T, Y)
 @boundscheck(False)
 @wraparound(False)
-cpdef matMulTransFinal_Guide(signed char[:,::1] D, float[::1] f, float[:,::1] F, signed char[:] p, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = F.shape[1]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
+cpdef matMulTrans_Freq(unsigned char[:,::1] D, float[::1] f, float[:,:] Y, float[:,::1] X, \
+						int Bi, int n, int m, int t):
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, k, b, bytepart
+	cdef float e
+
+	with nogil:
+		for b in prange(Bi, num_threads=t, schedule='static'):
+			for j in range(m):
+				byte = D[j,b]
+				i = b*4
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = 0.5 - f[j]
+						else:
+							e = code - f[j]
+						for k in range(K):
+							X[i,k] = X[i,k] + e*Y[j,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+## Final iteration
+# Matrix Multiplication from byte matrix - dot(E, X)
+@boundscheck(False)
+@wraparound(False)
+cpdef matMulFinal_Freq(unsigned char[:,::1] D, float[::1] f, float[:,:] X, float[:,:] Y, \
+						int Bi, int n, int m, int t):
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, k, b, bytepart
 	cdef float e
 
 	with nogil:
 		for j in prange(m, num_threads=t, schedule='static'):
-			for i in range(n):
-				if D[i,j] == -9:
-					if p[i] == -9:
-						e = 0
-					else:
+			i = 0
+			for b in range(Bi):
+				byte = D[j,b]
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = (0.5 - f[j])/sqrt(f[j]*(1 - f[j]))
+						else:
+							e = (code - f[j])/sqrt(f[j]*(1 - f[j]))
 						for k in range(K):
-							if p[i] == k:
-								e = (F[j,k] - f[j])/(f[j]*(1 - f[j]))
-								break
-				elif D[i,j] == 2:
-					e = (0.5 - f[j])/(f[j]*(1 - f[j]))
-				else:
-					e = (D[i,j] - f[j])/(f[j]*(1 - f[j]))
-				for o in range(O):
-					C[j,o] = C[j,o] + e*B[i,o]
+							Y[j,k] = Y[j,k] + e*X[i,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+# Trans Matrix Multiplication from byte matrix - dot(E.T, Y)
+@boundscheck(False)
+@wraparound(False)
+cpdef matMulTransFinal_Freq(unsigned char[:,::1] D, float[::1] f, float[:,:] Y, float[:,::1] X, \
+								int Bi, int n, int m, int t):
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, k, b, bytepart
+	cdef float e
+
+	with nogil:
+		for b in prange(Bi, num_threads=t, schedule='static'):
+			for j in range(m):
+				byte = D[j,b]
+				i = b*4
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = (0.5 - f[j])/sqrt(f[j]*(1 - f[j]))
+						else:
+							e = (code - f[j])/sqrt(f[j]*(1 - f[j]))
+						for k in range(K):
+							X[i,k] = X[i,k] + e*Y[j,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+
+### SVD update functions
+## Domain mapping
+# Matrix Multiplication from byte matrix - dot(E, X)
+@boundscheck(False)
+@wraparound(False)
+cpdef matMul_SVD_domain(unsigned char[:,::1] D, float[::1] f, float[:,:] U, float[:] s, float[:,:] W, \
+							float[:,::1] X, float[:,::1] Y, int Bi, int n, int m, int t):
+	cdef int V = U.shape[1]
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, k, v, b, bytepart
+	cdef float e
+
+	with nogil:
+		for j in prange(m, num_threads=t, schedule='static'):
+			i = 0
+			for b in range(Bi):
+				byte = D[j,b]
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = 0.5 - f[j]
+						else:
+							e = code - f[j]
+					else:
+						e = 0.0
+						for v in range(V):
+							e = e + U[j,v]*s[v]*W[v,i]
+						e = min(max(e + f[j], 1e-4), 1-(1e-4))
+						e = e - f[j]
+					for k in range(K):
+						Y[j,k] = Y[j,k] + e*X[i,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+# Trans Matrix Multiplication from byte matrix - dot(E.T, Y)
+@boundscheck(False)
+@wraparound(False)
+cpdef matMulTrans_SVD_domain(unsigned char[:,::1] D, float[::1] f, float[:,:] U, float[:] s, float[:,:] W, \
+								float[:,:] Y, float[:,::1] X, int Bi, int n, int m, int t):
+	cdef int V = U.shape[1]
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, k, v, b, bytepart
+	cdef float e
+
+	with nogil:
+		for b in prange(Bi, num_threads=t, schedule='static'):
+			for j in range(m):
+				byte = D[j,b]
+				i = b*4
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = 0.5 - f[j]
+						else:
+							e = code - f[j]
+					else:
+						e = 0.0
+						for v in range(V):
+							e = e + U[j,v]*s[v]*W[v,i]
+						e = min(max(e + f[j], 1e-4), 1-(1e-4))
+						e = e - f[j]
+					for k in range(K):
+						X[i,k] = X[i,k] + e*Y[j,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+## Final iteration
+# Matrix Multiplication from byte matrix - dot(E, X)
+@boundscheck(False)
+@wraparound(False)
+cpdef matMulFinal_SVD(unsigned char[:,::1] D, float[::1] f, float[:,:] U, float[:] s, float[:,:] W, \
+						float[:,:] X, float[:,:] Y, int Bi, int n, int m, int t):
+	cdef int V = U.shape[1]
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, k, v, b, bytepart
+	cdef float e
+
+	with nogil:
+		for j in prange(m, num_threads=t, schedule='static'):
+			i = 0
+			for b in range(Bi):
+				byte = D[j,b]
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = (0.5 - f[j])/sqrt(f[j]*(1 - f[j]))
+						else:
+							e = (code - f[j])/sqrt(f[j]*(1 - f[j]))
+					else:
+						e = 0.0
+						for v in range(V):
+							e = e + U[j,v]*s[v]*W[v,i]
+						e = e/sqrt(f[j]*(1 - f[j]))
+					for k in range(K):
+						Y[j,k] = Y[j,k] + e*X[i,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+# Trans Matrix Multiplication from byte matrix - dot(E.T, Y)
+@boundscheck(False)
+@wraparound(False)
+cpdef matMulTransFinal_SVD(unsigned char[:,::1] D, float[::1] f, float[:,:] U, float[:] s, float[:,:] W, \
+							float[:,:] Y, float[:,::1] X, int Bi, int n, int m, int t):
+	cdef int V = U.shape[1]
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, k, v, b, bytepart
+	cdef float e
+
+	with nogil:
+		for b in prange(Bi, num_threads=t, schedule='static'):
+			for j in range(m):
+				byte = D[j,b]
+				i = b*4
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = (0.5 - f[j])/sqrt(f[j]*(1 - f[j]))
+						else:
+							e = (code - f[j])/sqrt(f[j]*(1 - f[j]))
+					else:
+						e = 0.0
+						for v in range(V):
+							e = e + U[j,v]*s[v]*W[v,i]
+						e = e/sqrt(f[j]*(1 - f[j]))
+					for k in range(K):
+						X[i,k] = X[i,k] + e*Y[j,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
 
 
 ### Acceleration functions
-# dot(E, Q) - SVD
-@boundscheck(False)
-@wraparound(False)
-cpdef matMul_SVD_accel(signed char[:,::1] D, float[::1] f, float[:,:] Ws, float[:,:] U, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = Ws.shape[1]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
-
-	with nogil:
-		for i in prange(n, num_threads=t, schedule='static'):
-			for j in range(m):
-				if D[i,j] == -9:
-					e = 0.0
-					for k in range(K):
-						e = e + Ws[i,k]*U[k,j]
-				elif D[i,j] == 2:
-					e = 0.5 - f[j]
-				else:
-					e = D[i,j] - f[j]
-				for o in range(O):
-					C[i,o] = C[i,o] + e*B[j,o]
-
-# dot(E.T, Q) - SVD
-@boundscheck(False)
-@wraparound(False)
-cpdef matMulTrans_SVD_accel(signed char[:,::1] D, float[::1] f, float[:,:] Ws, float[:,:] U, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = U.shape[1]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
-
-	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
-			for i in range(n):
-				if D[i,j] == -9:
-					e = 0.0
-					for k in range(K):
-						e = e + U[j,k]*Ws[k,i]
-				elif D[i,j] == 2:
-					e = 0.5 - f[j]
-				else:
-					e = D[i,j] - f[j]
-				for o in range(O):
-					C[j,o] = C[j,o] + e*B[i,o]
-
-
 ## Map2Domain
-# dot(E, Q) - SVD
+# Matrix Multiplication from byte matrix - dot(E, X)
 @boundscheck(False)
 @wraparound(False)
-cpdef matMul_SVD_domain_accel(signed char[:,::1] D, float[::1] f, float[:,:] Ws, float[:,:] U, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = Ws.shape[1]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
-	cdef float e
-
-	with nogil:
-		for i in prange(n, num_threads=t, schedule='static'):
-			for j in range(m):
-				if D[i,j] == -9:
-					e = 0.0
-					for k in range(K):
-						e = e + Ws[i,k]*U[k,j]
-					e = e + f[j]
-					e = min(max(e, 1e-4), 1-(1e-4))
-					e = e - f[j]
-				elif D[i,j] == 2:
-					e = 0.5 - f[j]
-				else:
-					e = D[i,j] - f[j]
-				for o in range(O):
-					C[i,o] = C[i,o] + e*B[j,o]
-
-# dot(E.T, Q) - SVD
-@boundscheck(False)
-@wraparound(False)
-cpdef matMulTrans_SVD_domain_accel(signed char[:,::1] D, float[::1] f, float[:,:] Ws, float[:,:] U, float[:,:] B, float[:,:] C, int t):
-	cdef int n = D.shape[0]
-	cdef int m = D.shape[1]
-	cdef int K = U.shape[1]
-	cdef int O = C.shape[1]
-	cdef int i, j, k, o
+cpdef matMul_SVD_domain_accel(unsigned char[:,::1] D, float[::1] f, float[:,:] U, float[:,:] W, \
+							float[:,::1] X, float[:,::1] Y, int Bi, int n, int m, int t):
+	cdef int V = U.shape[1]
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, k, v, b, bytepart
 	cdef float e
 
 	with nogil:
 		for j in prange(m, num_threads=t, schedule='static'):
-			for i in range(n):
-				if D[i,j] == -9:
-					e = 0.0
+			i = 0
+			for b in range(Bi):
+				byte = D[j,b]
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = 0.5 - f[j]
+						else:
+							e = code - f[j]
+					else:
+						e = 0.0
+						for v in range(V):
+							e = e + U[j,v]*W[v,i]
+						e = min(max(e + f[j], 1e-4), 1-(1e-4))
+						e = e - f[j]
 					for k in range(K):
-						e = e + U[j,k]*Ws[k,i]
-					e = e + f[j]
-					e = min(max(e, 1e-4), 1-(1e-4))
-					e = e - f[j]
-				elif D[i,j] == 2:
-					e = 0.5 - f[j]
-				else:
-					e = D[i,j] - f[j]
-				for o in range(O):
-					C[j,o] = C[j,o] + e*B[i,o]
+						Y[j,k] = Y[j,k] + e*X[i,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+
+# Trans Matrix Multiplication from byte matrix - dot(E.T, Y)
+@boundscheck(False)
+@wraparound(False)
+cpdef matMulTrans_SVD_domain_accel(unsigned char[:,::1] D, float[::1] f, float[:,:] U, float[:,:] W, \
+								float[:,:] Y, float[:,::1] X, int Bi, int n, int m, int t):
+	cdef int V = U.shape[1]
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, k, v, b, bytepart
+	cdef float e
+
+	with nogil:
+		for b in prange(Bi, num_threads=t, schedule='static'):
+			for j in range(m):
+				byte = D[j,b]
+				i = b*4
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = 0.5 - f[j]
+						else:
+							e = code - f[j]
+					else:
+						e = 0.0
+						for v in range(V):
+							e = e + U[j,v]*W[v,i]
+						e = min(max(e + f[j], 1e-4), 1-(1e-4))
+						e = e - f[j]
+					for k in range(K):
+						X[i,k] = X[i,k] + e*Y[j,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+
+### Guided functions
+# Matrix Multiplication from byte matrix - dot(E, X)
+@boundscheck(False)
+@wraparound(False)
+cpdef matMul_Guide(unsigned char[:,::1] D, float[::1] f, float[:,::1] F, signed char[::1] p, \
+					float[:,::1] X, float[:,::1] Y, int Bi, int n, int m, int t):
+	cdef int V = F.shape[1]
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, v, k, b, bytepart
+	cdef float e
+
+	with nogil:
+		for j in prange(m, num_threads=t, schedule='static'):
+			i = 0
+			for b in range(Bi):
+				byte = D[j,b]
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = 0.5 - f[j]
+						else:
+							e = code - f[j]
+					else:
+						if p[i] == -9:
+							e = 0.0
+						else:
+							for v in range(V):
+								if p[i] == v:
+									e = F[j,v] - f[j]
+									break
+					for k in range(K):
+						Y[j,k] = Y[j,k] + e*X[i,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+# Trans Matrix Multiplication from byte matrix - dot(E.T, Y)
+@boundscheck(False)
+@wraparound(False)
+cpdef matMulTrans_Guide(unsigned char[:,::1] D, float[::1] f, float[:,::1] F, signed char[::1] p, \
+							float[:,:] Y, float[:,::1] X, int Bi, int n, int m, int t):
+	cdef int V = F.shape[1]
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, v, k, b, bytepart
+	cdef float e
+
+	with nogil:
+		for b in prange(Bi, num_threads=t, schedule='static'):
+			for j in range(m):
+				byte = D[j,b]
+				i = b*4
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = 0.5 - f[j]
+						else:
+							e = code - f[j]
+					else:
+						if p[i] == -9:
+							e = 0.0
+						else:
+							for v in range(V):
+								if p[i] == v:
+									e = F[j,v] - f[j]
+									break
+					for k in range(K):
+						X[i,k] = X[i,k] + e*Y[j,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+## Final iteration
+# Matrix Multiplication from byte matrix - dot(E, X)
+@boundscheck(False)
+@wraparound(False)
+cpdef matMulFinal_Guide(unsigned char[:,::1] D, float[::1] f, float[:,::1] F, signed char[::1] p, \
+							float[:,:] X, float[:,:] Y, int Bi, int n, int m, int t):
+	cdef int V = F.shape[1]
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, v, k, b, bytepart
+	cdef float e
+
+	with nogil:
+		for j in prange(m, num_threads=t, schedule='static'):
+			i = 0
+			for b in range(Bi):
+				byte = D[j,b]
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = (0.5 - f[j])/sqrt(f[j]*(1 - f[j]))
+						else:
+							e = (code - f[j])/sqrt(f[j]*(1 - f[j]))
+					else:
+						if p[i] == -9:
+							e = 0.0
+						else:
+							for v in range(V):
+								if p[i] == v:
+									e = (F[j,v] - f[j])/sqrt(f[j]*(1 - f[j]))
+									break
+					for k in range(K):
+						Y[j,k] = Y[j,k] + e*X[i,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+# Trans Matrix Multiplication from byte matrix - dot(E.T, Y)
+@boundscheck(False)
+@wraparound(False)
+cpdef matMulTransFinal_Guide(unsigned char[:,::1] D, float[::1] f, float[:,::1] F, signed char[::1] p, \
+								float[:,:] Y, float[:,::1] X, int Bi, int n, int m, int t):
+	cdef int V = F.shape[1]
+	cdef int K = X.shape[1]
+	cdef signed char[4] recode = [1, 9, 2, 0] # EMU format
+	cdef unsigned char mask = 3
+	cdef unsigned char byte, code
+	cdef int i, j, v, k, b, bytepart
+	cdef float e
+
+	with nogil:
+		for b in prange(Bi, num_threads=t, schedule='static'):
+			for j in range(m):
+				byte = D[j,b]
+				i = b*4
+				for bytepart in range(4):
+					code = recode[byte & mask]
+					if code != 9:
+						if code == 2:
+							e = (0.5 - f[j])/sqrt(f[j]*(1 - f[j]))
+						else:
+							e = (code - f[j])/sqrt(f[j]*(1 - f[j]))
+					else:
+						if p[i] == -9:
+							e = 0.0
+						else:
+							for v in range(V):
+								if p[i] == v:
+									e = (F[j,v] - f[j])/sqrt(f[j]*(1 - f[j]))
+									break
+					for k in range(K):
+						X[i,k] = X[i,k] + e*Y[j,k]
+
+					byte = byte >> 2 # Right shift 2 bits
+					i = i + 1
+					if i == n:
+						break
+
+
+### Galinsky selection scan
+@boundscheck(False)
+@wraparound(False)
+cpdef galinskyScan(float[:,:] U, float[:,::1] Dsquared, int m, int K, int t):
+	cdef int j, k
+	
+	# Loop over different PCs
+	with nogil:
+		for j in prange(m, num_threads=t, schedule='static'):
+			for k in range(K):
+				Dsquared[j,k] = (U[j,k]**2)*float(m)
+	return Dsquared

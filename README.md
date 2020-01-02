@@ -1,5 +1,5 @@
 # EMU
-Version 0.6
+Version 0.65
 
 ## Get EMU and build
 Clone repository and build (It is assumed that OpenMP is installed).
@@ -18,7 +18,7 @@ python setup.py build_ext --inplace
 ### Running EMU
 EMU can work on PLINK files directly or load data from a NumPy array (np.int8 - signed char).
 ```bash
-# Help
+# See all options
 python emu.py -h
 
 # Using binary NumPy file (.npy)
@@ -55,8 +55,8 @@ python emu.py -npy test.npy -index test.index.npy -e 2 -t 64 -o test.emu -w test
 ```
 
 ### Memory efficient implementation
-A more memory efficient implementation has been added. It is based of the Halko algorithm but using custom matrix multiplications that can handle decomposed matrices.
+A more memory efficient implementation has been added. It is based of the Halko algorithm but using custom matrix multiplications that can handle decomposed matrices. Can only read PLINK files as it uses the same 2-bit format of the .bed file.
 ```bash
 # Example run
-python emu_mem.py -npy test.npy -e 2 -t 64 -accel -o test.memory.emu.accel
+python emu_mem.py -plink test -e 2 -t 64 -accel -o test.memory.emu.accel
 ``` 

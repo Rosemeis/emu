@@ -4,7 +4,9 @@ Performs iterative SVD of allele count matrix (EM-PCA) based on either ARPACK or
 
 Jonas Meisner, Siyang Liu, Mingxi Huang and Anders Albrechtsen
 
-Example usage: python emu.py -npy matrix.npy -e 2 -t 64 -accel -o flash
+Example usages: 
+python emu.py -npy matrix.npy -e 2 -t 64 -accel -o flash
+python emu.py -plink fileprefix -e 2 -t 64 -accel -o flash
 """
 
 __author__ = "Jonas Meisner"
@@ -21,7 +23,7 @@ from sklearn.utils.extmath import randomized_svd, svd_flip
 ### Main function ###
 def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, indf_save, output, accel, cost, t):
 	n, m = D.shape # Dimensions
-	E = np.empty((n, m), dtype=np.float32)
+	E = np.zeros((n, m), dtype=np.float32)
 
 	if accel:
 		print("Using accelerated EM scheme (SqS3)")
@@ -179,7 +181,7 @@ def extract_length(filename):
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="EMU")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.6")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.65")
 parser.add_argument("-npy", metavar="FILE",
 	help="Input numpy binary file (.npy)")
 parser.add_argument("-plink", metavar="FILE-PREFIX",
@@ -220,12 +222,12 @@ parser.add_argument("-accel", action="store_true",
 	help="Accelerated EM")
 parser.add_argument("-cost", action="store_true",
 	help="Output min-cost each iteration (DEBUG)")
-parser.add_argument("-o", metavar="OUTPUT", help="Prefix output file name", default="flash")
+parser.add_argument("-o", metavar="OUTPUT", help="Prefix output name", default="emu")
 args = parser.parse_args()
 
 
 ### Caller ###
-print("EMU 0.6\n")
+print("EMU 0.65\n")
 
 # Set K
 if args.k is None:
@@ -251,7 +253,7 @@ else:
 
 # Population allele frequencies
 print("Estimating population allele frequencies.")
-f = np.empty(m, dtype=np.float32)
+f = np.zeros(m, dtype=np.float32)
 shared.estimateF(D, f, args.t)
 
 # Removing rare variants

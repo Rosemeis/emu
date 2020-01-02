@@ -2,7 +2,7 @@ import numpy as np
 cimport numpy as np
 from cython.parallel import prange
 from cython import boundscheck, wraparound
-from libc.math cimport sqrt, fabs
+from libc.math cimport sqrt
 
 # Typedef
 DTYPE = np.float32
@@ -74,12 +74,12 @@ cpdef updateE_init(signed char[:,::1] D, float[::1] f, float[:,::1] E, int t):
 	with nogil:
 		for i in prange(n, num_threads=t, schedule='static'):
 			for j in range(m):
-				if D[i,j] == -9:
-					E[i,j] = 0
-				elif D[i,j] == 2: # Heterozygous site
-					E[i,j] = 0.5 - f[j]
-				else:
-					E[i,j] = D[i,j] - f[j]
+				if D[i,j] != -9:
+					if D[i,j] == 2: # Heterozygous site
+						E[i,j] = 0.5 - f[j]
+					else:
+						E[i,j] = D[i,j] - f[j]
+
 
 @boundscheck(False)
 @wraparound(False)
@@ -93,9 +93,7 @@ cpdef updateE_init_guided(signed char[:,::1] D, float[::1] f, float[:,::1] F, si
 		for i in prange(n, num_threads=t, schedule='static'):
 			for j in range(m):
 				if D[i,j] == -9:
-					if p[i] == -9:
-						E[i,j] = 0
-					else:
+					if p[i] != -9:
 						for k in range(K):
 							if p[i] == k: 
 								E[i,j] = F[j,k] - f[j]
@@ -176,7 +174,7 @@ cpdef galinskyScan(float[:,:] U, float[:,:] Dsquared, int t):
 # Matrix subtraction
 @boundscheck(False)
 @wraparound(False)
-cpdef matMinus(float[:,:] M1, float[:,:] M2, float[:,:] diffM):
+cpdef matMinus(float[:,:] M1, float[:,:] M2, float[:,::1] diffM):
 	cdef int n = M1.shape[0]
 	cdef int m = M1.shape[1]
 	cdef int i, j
@@ -223,30 +221,10 @@ cpdef updateE_SVD_accel(signed char[:,::1] D, float[:,::1] E, float[::1] f, floa
 				else:
 					E[i,j] = D[i,j] - f[j]
 
-@boundscheck(False)
-@wraparound(False)
-cpdef updateE_SVD_accel2(signed char[:,::1] D, float[:,::1] E, float[::1] f, float[:,:] Ws, float[:,:] U, int t):
-	cdef int n = E.shape[0]
-	cdef int m = E.shape[1]
-	cdef int K = Ws.shape[1]
-	cdef int i, j, k
-
-	with nogil:
-		for i in prange(n, num_threads=t, schedule='static'):
-			for j in range(m):
-				if D[i,j] == -9: # Missing site
-					E[i,j] = 0.0
-					for k in range(K):
-						E[i,j] += Ws[i,k]*U[k,j]
-				elif D[i,j] == 2: # Heterozygous site
-					E[i,j] = 0.5 - f[j]
-				else:
-					E[i,j] = D[i,j] - f[j]
-
 
 @boundscheck(False)
 @wraparound(False)
-cpdef matUpdate(float[:,:] M, float[:,:] diffM_1, float[:,:] diffM_3, float alpha):
+cpdef matUpdate(float[:,:] M, float[:,::1] diffM_1, float[:,::1] diffM_3, float alpha):
 	cdef int n = M.shape[0]
 	cdef int m = M.shape[1]
 	cdef int i, j
