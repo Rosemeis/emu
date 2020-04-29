@@ -1,6 +1,8 @@
 # EMU
 Version 0.66
 
+More information, regarding options in EMU, can be found here: http://www.popgen.dk/software/index.php/EMU
+
 ## Get EMU and build
 Clone repository and build (It is assumed that OpenMP is installed).
 ```bash
