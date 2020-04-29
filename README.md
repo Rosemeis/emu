@@ -1,5 +1,5 @@
 # EMU
-Version 0.65
+Version 0.66
 
 ## Get EMU and build
 Clone repository and build (It is assumed that OpenMP is installed).
@@ -37,11 +37,11 @@ python emu.py -npy test.npy -index test.index.npy -e 2 -t 64 -o test.emu
 python convertMat.py -plink test -o test
 ```
 
-### Acceleration (Recommended)
-An acceleration scheme can now be used with both SVD options (arpack or halko) using "-accel". Each iteration will be longer as 3 steps are performed but the overall number of iterations for convergence is decreased significantly.
+### Acceleration (Default - Recommended)
+An acceleration scheme is being used with both SVD options (halko or arpack). Each iteration will be longer as 3 steps are performed but the overall number of iterations for convergence is decreased significantly. The acceleration can be turned off.
 ```bash
-# Acceleration with Halko
-python emu.py -npy test.npy -index test.index.npy -e 2 -t 64 -accel -o test.emu.accel
+# No acceleration
+python emu.py -npy test.npy -index test.index.npy -e 2 -t 64 -no_accel -o test.emu.no_accel
 ```
 
 ### Saving and loading factor matrices
@@ -58,5 +58,5 @@ python emu.py -npy test.npy -index test.index.npy -e 2 -t 64 -o test.emu -w test
 A more memory efficient implementation has been added. It is based of the Halko algorithm but using custom matrix multiplications that can handle decomposed matrices. Can only read PLINK files as it uses the same 2-bit format of the .bed file.
 ```bash
 # Example run
-python emu_mem.py -plink test -e 2 -t 64 -accel -o test.memory.emu.accel
+python emu_mem.py -plink test -e 2 -t 64 -o test.memory.emu.accel
 ``` 

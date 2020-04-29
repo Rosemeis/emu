@@ -5,8 +5,8 @@ Performs iterative SVD of allele count matrix (EM-PCA) based on either ARPACK or
 Jonas Meisner, Siyang Liu, Mingxi Huang and Anders Albrechtsen
 
 Example usages: 
-python emu.py -npy matrix.npy -e 2 -t 64 -accel -o flash
-python emu.py -plink fileprefix -e 2 -t 64 -accel -o flash
+python emu.py -npy matrix.npy -e 2 -t 64 -o flash
+python emu.py -plink fileprefix -e 2 -t 64 -o flash
 """
 
 __author__ = "Jonas Meisner"
@@ -21,7 +21,7 @@ from scipy.sparse.linalg import svds
 from sklearn.utils.extmath import randomized_svd, svd_flip
 
 ### Main function ###
-def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, indf_save, output, accel, cost, t):
+def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, indf_save, output, accel, cost, cost_step, t):
 	n, m = D.shape # Dimensions
 	E = np.zeros((n, m), dtype=np.float32)
 
@@ -33,7 +33,6 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 		diffU_1 = np.empty((e, m), dtype=np.float32)
 		diffU_2 = np.empty((e, m), dtype=np.float32)
 		diffU_3 = np.empty((e, m), dtype=np.float32)
-		maxW, maxU = 1.0, 1.0
 
 	if W is None:
 		if F is None:
@@ -71,7 +70,8 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 		if cost:
 			sumVec = np.zeros(n, dtype=np.float32)
 			shared.frobenius(D, f, W, s, U, sumVec, t)
-			print("Frobenius: " + str(np.sum(sumVec)))
+			oldCost = np.sum(sumVec)
+			print("Frobenius: " + str(oldCost))
 
 		# Update E matrix based on setting
 		if not accel:
@@ -120,7 +120,13 @@ def flashPCAngsd(D, f, e, K, M, M_tole, F, p, W, s, U, svd_method, svd_power, in
 
 				if cost:
 					shared.frobenius_accel(D, f, W, U, sumVec, t)
-					print("Frobenius: " + str(np.sum(sumVec)))
+					newCost = np.sum(sumVec)
+					print("Frobenius: " + str(newCost))
+					if oldCost >= newCost:
+						print("Bad step, using un-accelerated update!")
+						shared.updateE_SVD_accel(D, E, f, W2, U2, t)
+					else:
+						oldCost = newCost
 			else:
 				if svd_method == "arpack":
 					W, s, U = svds(E, k=e)
@@ -181,7 +187,7 @@ def extract_length(filename):
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="EMU")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.65")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.66")
 parser.add_argument("-npy", metavar="FILE",
 	help="Input numpy binary file (.npy)")
 parser.add_argument("-plink", metavar="FILE-PREFIX",
@@ -208,7 +214,7 @@ parser.add_argument("-indf_save", action="store_true",
 	help="Save estimated singular matrices")
 parser.add_argument("-index", metavar="FILE",
 	help="Index for guided allele frequencies")
-parser.add_argument("-svd", metavar="STRING", default="arpack",
+parser.add_argument("-svd", metavar="STRING", default="halko",
 	help="Method for performing truncated SVD (arpack/halko)")
 parser.add_argument("-svd_power", metavar="INT", type=int, default=3,
 	help="Number of power iterations in randomized SVD (Halko)")
@@ -218,18 +224,21 @@ parser.add_argument("-s", metavar="FILE",
 	help="Singular values (.s.npy)")
 parser.add_argument("-u", metavar="FILE",
 	help="Right singular matrix (.u.npy)")
-parser.add_argument("-accel", action="store_true",
-	help="Accelerated EM")
+parser.add_argument("-no_accel", action="store_true",
+	help="Turn off acceleration for EM")
 parser.add_argument("-cost", action="store_true",
 	help="Output min-cost each iteration (DEBUG)")
+parser.add_argument("-cost_step", action="store_true",
+	help="Use acceleration based on cost")
 parser.add_argument("-o", metavar="OUTPUT", help="Prefix output name", default="emu")
 args = parser.parse_args()
 
 
 ### Caller ###
-print("EMU 0.65\n")
+print("EMU 0.66\n")
 
 # Set K
+assert args.e is not None, "Must specify number of eigenvectors to use!"
 if args.k is None:
 	K = args.e
 else:
@@ -289,13 +298,20 @@ else:
 	W, s, U = None, None, None
 
 # FlashPCAngsd
+if args.cost_step:
+	assert args.cost, "Must also estimate cost at every iteration (-cost)!"
+
+if args.no_accel:
+	accel = False
+else:
+	accel = True
 print("Performing EMU.")
 print("Using " + str(args.e) + " eigenvector(s).")
 V, s, U = flashPCAngsd(D, f, args.e, K, args.m, args.m_tole, F, p, W, s, U, args.svd, \
-	args.svd_power, args.indf_save, args.o, args.accel, args.cost, args.t)
+	args.svd_power, args.indf_save, args.o, accel, args.cost, args.cost_step, args.t)
 
-print("Saving eigenvector(s) as " + args.o + ".eigenvecs.npy (Binary).")
-np.save(args.o + ".eigenvecs", V.astype(float, copy=False))
+print("Saving eigenvector(s) as " + args.o + ".eigenvecs (Text).")
+np.savetxt(args.o + ".eigenvecs", V)
 print("Saving eigenvalue(s) as " + args.o + ".eigenvals (Text).")
 np.savetxt(args.o + ".eigenvals", s**2/m)
 

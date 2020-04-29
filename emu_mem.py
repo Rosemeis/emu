@@ -4,7 +4,7 @@ Performs iterative SVD of allele count matrix (EM-PCA) based on custom Halko met
 
 Jonas Meisner, Siyang Liu, Mingxi Huang and Anders Albrechtsen
 
-Example usage: python emu_mem.py -plink fileprefix -e 2 -t 64 -accel -o flash
+Example usage: python emu_mem.py -plink fileprefix -e 2 -t 64 -o flash
 """
 
 __author__ = "Jonas Meisner"
@@ -300,7 +300,7 @@ def emuMemory(D, f, e, K, M, M_tole, F, p, U, s, W, Bi, n, m, svd_power, indf_sa
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="EMU-mem")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.65")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.66")
 parser.add_argument("-plink", metavar="FILE-PREFIX",
 	help="Prefix for PLINK files (.bed, .bim, .fam)")
 parser.add_argument("-e", metavar="INT", type=int,
@@ -329,16 +329,17 @@ parser.add_argument("-s", metavar="FILE",
 	help="Singular values (.s.npy)")
 parser.add_argument("-u", metavar="FILE",
 	help="Right singular matrix (.u.npy)")
-parser.add_argument("-accel", action="store_true",
-	help="Accelerated EM")
+parser.add_argument("-no_accel", action="store_true",
+	help="Turn off acceleration for EM")
 parser.add_argument("-o", metavar="OUTPUT", help="Prefix output name", default="emu_mem")
 args = parser.parse_args()
 
 
 ### Caller ###
-print("EMU-mem 0.65\n")
+print("EMU-mem 0.66\n")
 
 # Set K
+assert args.e is not None, "Must specify number of eigenvectors to use!"
 if args.k is None:
 	K = args.e
 else:
@@ -386,13 +387,17 @@ else:
 	W, s, U = None, None, None
 
 # Ultramem
+if args.no_accel:
+	accel = False
+else:
+	accel =True
 print("Performing EMU-mem variant.")
 print("Using " + str(args.e) + " eigenvector(s).")
 U, s, V = emuMemory(D, f, args.e, K, args.m, args.m_tole, F, p, U, s, W, Bi, n, m, args.svd_power, \
-	args.indf_save, args.o, args.accel, args.t)
+	args.indf_save, args.o, accel, args.t)
 
-print("Saving eigenvector(s) as " + args.o + ".eigenvecs.npy (Binary).")
-np.save(args.o + ".eigenvecs", V.T.astype(float, copy=False))
+print("Saving eigenvector(s) as " + args.o + ".eigenvecs (Text).")
+np.savetxt(args.o + ".eigenvecs", V.T)
 print("Saving eigenvalue(s) as " + args.o + ".eigenvals (Text).")
 np.savetxt(args.o + ".eigenvals", s**2/m)
 
