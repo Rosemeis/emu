@@ -99,7 +99,7 @@ def extract_length(filename):
 
 # Read data
 print("Reading in data matrix from PLINK files.")
-assert args.plink is not None, "No valid input given! Must use '-npy' or '-plink'!"
+assert args.plink is not None, "No valid input given! Must use '-plink'!"
 # Finding length of .fam and .bim file and read .bed file into NumPy array
 n = extract_length(args.plink + ".fam")
 m = extract_length(args.plink + ".bim")
@@ -120,13 +120,12 @@ shared_cy.estimateF(D, f, Bi, n, m, args.threads)
 if args.maf > 0.0:
 	mask = (f >= args.maf) & (f <= (1 - args.maf))
 
-	# Update arrays
+	# Filter and update arrays without copying
 	m = np.sum(mask)
 	tmpMask = mask.astype(np.uint8)
-	shared_cy.filterVec(f, tmpMask)
-	f = f[:m]
-	shared_cy.filterMat(D, tmpMask)
+	shared_cy.filterArrays(D, f, tmpMask)
 	D = D[:m,:]
+	f = f[:m]
 	del tmpMask
 	print("Number of sites after MAF filtering (" + str(args.maf) + "): " \
             + str(m))

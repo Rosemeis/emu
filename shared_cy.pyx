@@ -40,30 +40,20 @@ cpdef estimateF(unsigned char[:,::1] D, float[::1] f, int Bi, int n, int m, \
 						f[j] = f[j]/float(c[j])
 						break
 
-# 1D array filtering
+# Array filtering
 @boundscheck(False)
 @wraparound(False)
-cpdef filterVec(float[::1] f, unsigned char[::1] mask):
-	cdef int m = f.shape[0]
-	cdef int c = 0
-	cdef int s
-	for s in range(m):
-		if mask[s] == 1:
-			f[c] = f[s]
-			c += 1
-
-# 2D array filtering
-@boundscheck(False)
-@wraparound(False)
-cpdef filterMat(unsigned char[:,::1] D, unsigned char[::1] mask):
+cpdef filterArrays(unsigned char[:,::1] D, float[::1] f, \
+					unsigned char[::1] mask):
 	cdef int m = D.shape[0]
 	cdef int n = D.shape[1]
 	cdef int c = 0
-	cdef int i, j
+	cdef int j
 	for j in range(m):
 		if mask[j] == 1:
 			for i in range(n):
-				D[c,i] = D[j,i]
+				D[c,i] = D[j,i] # Data matrix
+			f[c] = f[j] # Allele frequency
 			c += 1
 
 # Initial update of dosage matrix
