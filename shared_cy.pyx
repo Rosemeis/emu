@@ -48,7 +48,7 @@ cpdef filterArrays(unsigned char[:,::1] D, float[::1] f, \
 	cdef int m = D.shape[0]
 	cdef int n = D.shape[1]
 	cdef int c = 0
-	cdef int j
+	cdef int i, j
 	for j in range(m):
 		if mask[j] == 1:
 			for i in range(n):
