@@ -37,7 +37,10 @@ cpdef estimateF(unsigned char[:,::1] D, float[::1] f, int Bi, int n, int m, \
 					byte = byte >> 2 # Right shift 2 bits
 					i = i + 1
 					if i == n:
-						f[j] = f[j]/float(c[j])
+						if c[j] > 0:
+							f[j] = f[j]/float(c[j])
+						else:
+							f[j] = 0.0
 						break
 
 # Array filtering

@@ -23,7 +23,7 @@ import subprocess
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="EMU")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.7")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.71")
 parser.add_argument("-mem", action="store_true",
 	help="EMU-mem variant")
 parser.add_argument("-plink", metavar="FILE-PREFIX",
@@ -69,7 +69,7 @@ parser.add_argument("-out", metavar="OUTPUT", default="emu",
 args = parser.parse_args()
 
 ### Caller ###
-print("EMU 0.7\n")
+print("EMU 0.71\n")
 
 # Control threads
 os.environ["OMP_NUM_THREADS"] = str(args.threads)
@@ -167,9 +167,9 @@ else:
 									args.cost_step, args.threads)
 
 # Save matrices
-np.savetxt(args.out + ".eigenvecs", V.T, fmt="%.6f")
+np.savetxt(args.out + ".eigenvecs", V.T, fmt="%.7f")
 print("Saved eigenvector(s) as " + args.out + ".eigenvecs (Text).")
-np.savetxt(args.out + ".eigenvals", s**2/float(m), fmt="%.6f")
+np.savetxt(args.out + ".eigenvals", s**2/float(m), fmt="%.7f")
 print("Saved eigenvalue(s) as " + args.out + ".eigenvals (Text).")
 del V, s
 

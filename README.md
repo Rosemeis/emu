@@ -1,5 +1,5 @@
 # EMU
-Version 0.7
+Version 0.71
 
 More information, regarding options in EMU, can be found here: http://www.popgen.dk/software/index.php/EMU
 
