@@ -23,7 +23,7 @@ import subprocess
 
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="EMU")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.71")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.72")
 parser.add_argument("-mem", action="store_true",
 	help="EMU-mem variant")
 parser.add_argument("-plink", metavar="FILE-PREFIX",
@@ -48,9 +48,9 @@ parser.add_argument("-sites_save", action="store_true",
 	help="Save vector of sites after MAF filtering (Binary)")
 parser.add_argument("-indf_save", action="store_true",
 	help="Save estimated singular matrices")
-parser.add_argument("-svd", metavar="STRING", default="halko",
+parser.add_argument("-svd", metavar="STRING", default="arpack",
 	help="Method for performing truncated SVD (arpack/halko)")
-parser.add_argument("-svd_power", metavar="INT", type=int, default=3,
+parser.add_argument("-svd_power", metavar="INT", type=int, default=4,
 	help="Number of power iterations in randomized SVD (Halko)")
 parser.add_argument("-u", metavar="FILE",
 	help="left singular matrix (.u.npy)")
@@ -69,7 +69,7 @@ parser.add_argument("-out", metavar="OUTPUT", default="emu",
 args = parser.parse_args()
 
 ### Caller ###
-print("EMU 0.71\n")
+print("EMU 0.72\n")
 
 # Control threads
 os.environ["OMP_NUM_THREADS"] = str(args.threads)
