@@ -26,12 +26,12 @@ def emuAlgorithm(D, f, e, K, M, M_tole, U, s, W, Bi, n, m, svd_method, \
 	# Setup acceleration
 	if accel:
 		print("Using accelerated EM scheme (SqS3)")
-		diffU_1 = np.empty((m, e), dtype=np.float32)
-		diffU_2 = np.empty((m, e), dtype=np.float32)
-		diffU_3 = np.empty((m, e), dtype=np.float32)
-		diffW_1 = np.empty((e, n), dtype=np.float32)
-		diffW_2 = np.empty((e, n), dtype=np.float32)
-		diffW_3 = np.empty((e, n), dtype=np.float32)
+		diffU_1 = np.zeros((m, e), dtype=np.float32)
+		diffU_2 = np.zeros((m, e), dtype=np.float32)
+		diffU_3 = np.zeros((m, e), dtype=np.float32)
+		diffW_1 = np.zeros((e, n), dtype=np.float32)
+		diffW_2 = np.zeros((e, n), dtype=np.float32)
+		diffW_3 = np.zeros((e, n), dtype=np.float32)
 
 	# Initiate E matrix
 	if W is None:
@@ -347,12 +347,12 @@ def emuMemory(D, f, e, K, M, M_tole, U, s, W, Bi, n, m, svd_power, \
 	# Setup acceleration
 	if accel:
 		print("Using accelerated EM scheme (SqS3)")
-		diffU_1 = np.empty((m, e), dtype=np.float32)
-		diffU_2 = np.empty((m, e), dtype=np.float32)
-		diffU_3 = np.empty((m, e), dtype=np.float32)
-		diffW_1 = np.empty((e, n), dtype=np.float32)
-		diffW_2 = np.empty((e, n), dtype=np.float32)
-		diffW_3 = np.empty((e, n), dtype=np.float32)
+		diffU_1 = np.zeros((m, e), dtype=np.float32)
+		diffU_2 = np.zeros((m, e), dtype=np.float32)
+		diffU_3 = np.zeros((m, e), dtype=np.float32)
+		diffW_1 = np.zeros((e, n), dtype=np.float32)
+		diffW_2 = np.zeros((e, n), dtype=np.float32)
+		diffW_3 = np.zeros((e, n), dtype=np.float32)
 	if M < 1:
 		print("Warning, no EM-PCA iterations are performed!")
 		print("Inferring set of eigenvector(s).")

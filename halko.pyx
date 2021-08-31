@@ -1,3 +1,4 @@
+# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
 from cython.parallel import prange
@@ -12,8 +13,6 @@ ctypedef np.int32_t DTYPE_t
 ### 2-bit functions only ###
 ### Frequency functions
 # Matrix Multiplication from byte matrix - dot(E, X)
-@boundscheck(False)
-@wraparound(False)
 cpdef matMul_Freq(unsigned char[:,::1] D, float[::1] f, float[:,::1] X, \
 					float[:,::1] Y, int Bi, int n, int m, int t):
 	cdef int K = X.shape[1]
@@ -42,8 +41,6 @@ cpdef matMul_Freq(unsigned char[:,::1] D, float[::1] f, float[:,::1] X, \
 						break
 
 # Trans Matrix Multiplication from byte matrix - dot(E.T, Y)
-@boundscheck(False)
-@wraparound(False)
 cpdef matMulTrans_Freq(unsigned char[:,::1] D, float[::1] f, float[:,:] Y, \
 						float[:,::1] X, int Bi, int n, int m, int t):
 	cdef int K = X.shape[1]
@@ -73,8 +70,6 @@ cpdef matMulTrans_Freq(unsigned char[:,::1] D, float[::1] f, float[:,:] Y, \
 
 ## Final iteration
 # Matrix Multiplication from byte matrix - dot(E, X)
-@boundscheck(False)
-@wraparound(False)
 cpdef matMulFinal_Freq(unsigned char[:,::1] D, float[::1] f, float[:,:] X, \
 						float[:,:] Y, int Bi, int n, int m, int t):
 	cdef int K = X.shape[1]
@@ -103,8 +98,6 @@ cpdef matMulFinal_Freq(unsigned char[:,::1] D, float[::1] f, float[:,:] X, \
 						break
 
 # Trans Matrix Multiplication from byte matrix - dot(E.T, Y)
-@boundscheck(False)
-@wraparound(False)
 cpdef matMulTransFinal_Freq(unsigned char[:,::1] D, float[::1] f, float[:,:] Y,\
 							float[:,::1] X, int Bi, int n, int m, int t):
 	cdef int K = X.shape[1]
@@ -135,8 +128,6 @@ cpdef matMulTransFinal_Freq(unsigned char[:,::1] D, float[::1] f, float[:,:] Y,\
 ### SVD update functions
 ## Domain mapping
 # Matrix Multiplication from byte matrix - dot(E, X)
-@boundscheck(False)
-@wraparound(False)
 cpdef matMul_SVD_domain(unsigned char[:,::1] D, float[::1] f, float[:,:] U, \
 						float[:] s, float[:,:] W, float[:,::1] X, \
 						float[:,::1] Y, int Bi, int n, int m, int t):
@@ -173,8 +164,6 @@ cpdef matMul_SVD_domain(unsigned char[:,::1] D, float[::1] f, float[:,:] U, \
 						break
 
 # Trans Matrix Multiplication from byte matrix - dot(E.T, Y)
-@boundscheck(False)
-@wraparound(False)
 cpdef matMulTrans_SVD_domain(unsigned char[:,::1] D, float[::1] f, \
 								float[:,:] U, float[:] s, float[:,:] W, \
 								float[:,:] Y, float[:,::1] X, int Bi, int n, \
@@ -213,8 +202,6 @@ cpdef matMulTrans_SVD_domain(unsigned char[:,::1] D, float[::1] f, \
 
 ## Final iteration
 # Matrix Multiplication from byte matrix - dot(E, X)
-@boundscheck(False)
-@wraparound(False)
 cpdef matMulFinal_SVD(unsigned char[:,::1] D, float[::1] f, float[:,:] U, \
 						float[:] s, float[:,:] W, float[:,:] X, float[:,:] Y, \
 						int Bi, int n, int m, int t):
@@ -250,8 +237,6 @@ cpdef matMulFinal_SVD(unsigned char[:,::1] D, float[::1] f, float[:,:] U, \
 						break
 
 # Trans Matrix Multiplication from byte matrix - dot(E.T, Y)
-@boundscheck(False)
-@wraparound(False)
 cpdef matMulTransFinal_SVD(unsigned char[:,::1] D, float[::1] f, float[:,:] U, \
 							float[:] s, float[:,:] W, float[:,:] Y, \
 							float[:,::1] X, int Bi, int n, int m, int t):
@@ -289,8 +274,6 @@ cpdef matMulTransFinal_SVD(unsigned char[:,::1] D, float[::1] f, float[:,:] U, \
 ### Acceleration functions
 ## Map2Domain
 # Matrix Multiplication from byte matrix - dot(E, X)
-@boundscheck(False)
-@wraparound(False)
 cpdef matMul_SVD_domain_accel(unsigned char[:,::1] D, float[::1] f, \
 								float[:,:] U, float[:,:] W, float[:,::1] X, \
 								float[:,::1] Y, int Bi, int n, int m, int t):
@@ -327,8 +310,6 @@ cpdef matMul_SVD_domain_accel(unsigned char[:,::1] D, float[::1] f, \
 						break
 
 # Trans Matrix Multiplication from byte matrix - dot(E.T, Y)
-@boundscheck(False)
-@wraparound(False)
 cpdef matMulTrans_SVD_domain_accel(unsigned char[:,::1] D, float[::1] f, \
 									float[:,:] U, float[:,:] W, float[:,:] Y, \
 									float[:,::1] X, int Bi, int n, int m, int t):

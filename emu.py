@@ -70,6 +70,7 @@ args = parser.parse_args()
 
 ### Caller ###
 print("EMU 0.72\n")
+assert args.plink is not None, "No input data (-plink)"
 
 # Control threads
 os.environ["OMP_NUM_THREADS"] = str(args.threads)
@@ -114,7 +115,9 @@ print("Loaded " + str(n) + " samples and " + str(m) + " sites.")
 # Population allele frequencies
 print("Estimating population allele frequencies.")
 f = np.zeros(m, dtype=np.float32)
-shared_cy.estimateF(D, f, Bi, n, m, args.threads)
+c = np.zeros(m, dtype=np.int32)
+shared_cy.estimateF(D, f, c, Bi, n, m, args.threads)
+del c
 
 # Removing rare variants
 if args.maf > 0.0:
