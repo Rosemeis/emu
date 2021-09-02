@@ -7,10 +7,10 @@ Jonas Meisner, Siyang Liu, Mingxi Huang and Anders Albrechtsen
 Example usages:
 ```
 # EMU
-python emu.py -plink fileprefix -e 2 -threads 64 -out emu
+python emu.py -p fileprefix -e 2 -t 64 -o emu
 
 # EMU-mem
-python emu.py -plink fileprefix -mem -e 2 -threads 64 -out emu_mem
+python emu.py -m -p fileprefix -e 2 -t 64 -out emu_mem
 ```
 """
 
@@ -24,48 +24,48 @@ import subprocess
 ##### Argparse #####
 parser = argparse.ArgumentParser(prog="EMU")
 parser.add_argument("--version", action="version", version="%(prog)s alpha 0.72")
-parser.add_argument("-mem", action="store_true",
+parser.add_argument("-m", "--mem", action="store_true",
 	help="EMU-mem variant")
-parser.add_argument("-plink", metavar="FILE-PREFIX",
+parser.add_argument("-p", "--plink", metavar="FILE-PREFIX",
 	help="Prefix for PLINK files (.bed, .bim, .fam)")
-parser.add_argument("-e", metavar="INT", type=int,
+parser.add_argument("-e", "--n_eig", metavar="INT", type=int,
 	help="Number of eigenvectors to use in iterative estimation")
-parser.add_argument("-k", metavar="INT", type=int,
+parser.add_argument("-k", "--n_out", metavar="INT", type=int,
 	help="Number of eigenvectors to output in final SVD")
-parser.add_argument("-m", metavar="INT", type=int, default=100,
-	help="Maximum iterations in estimation of individual allele frequencies (100)")
-parser.add_argument("-m_tole", metavar="FLOAT", type=float, default=5e-7,
-	help="Tolerance in update for individual allele frequencies (5e-7)")
-parser.add_argument("-threads", metavar="INT", type=int, default=1,
+parser.add_argument("-t", "--threads", metavar="INT", type=int, default=1,
 	help="Number of threads")
-parser.add_argument("-maf", metavar="FLOAT", type=float, default=0.00,
+parser.add_argument("-f", "--maf", metavar="FLOAT", type=float, default=0.00,
 	help="Threshold for minor allele frequencies (0.00)")
-parser.add_argument("-selection", action="store_true",
+parser.add_argument("-s", "--selection", action="store_true",
 	help="Perform PC-based selection scan (Galinsky et al. 2016)")
-parser.add_argument("-maf_save", action="store_true",
-	help="Save estimated population allele frequencies")
-parser.add_argument("-sites_save", action="store_true",
-	help="Save vector of sites after MAF filtering (Binary)")
-parser.add_argument("-indf_save", action="store_true",
-	help="Save estimated singular matrices")
-parser.add_argument("-svd", metavar="STRING", default="arpack",
-	help="Method for performing truncated SVD (arpack/halko)")
-parser.add_argument("-svd_power", metavar="INT", type=int, default=4,
-	help="Number of power iterations in randomized SVD (Halko)")
-parser.add_argument("-u", metavar="FILE",
-	help="left singular matrix (.u.npy)")
-parser.add_argument("-s", metavar="FILE",
-	help="Singular values (.s.npy)")
-parser.add_argument("-w", metavar="FILE",
-	help="right singular matrix (.w.npy)")
-parser.add_argument("-no_accel", action="store_true",
-	help="Turn off acceleration for EM (not recommended)")
-parser.add_argument("-cost", action="store_true",
-	help="Output min-cost each iteration (ONLY EMU)")
-parser.add_argument("-cost_step", action="store_true",
-	help="Use acceleration based on cost (ONLY EMU)")
-parser.add_argument("-out", metavar="OUTPUT", default="emu",
+parser.add_argument("-o", "--out", metavar="OUTPUT", default="emu",
 	help="Prefix output name",)
+parser.add_argument("--no_accel", action="store_true",
+	help="Turn off acceleration for EM (not recommended)")
+parser.add_argument("--iter", metavar="INT", type=int, default=100,
+	help="Maximum iterations in estimation of individual allele frequencies (100)")
+parser.add_argument("--tole", metavar="FLOAT", type=float, default=5e-7,
+	help="Tolerance in update for individual allele frequencies (5e-7)")
+parser.add_argument("--svd", metavar="STRING", default="halko",
+	help="Method for performing truncated SVD (arpack/halko)")
+parser.add_argument("--svd_power", metavar="INT", type=int, default=4,
+	help="Number of power iterations in randomized SVD (Halko)")
+parser.add_argument("--maf_save", action="store_true",
+	help="Save estimated population allele frequencies")
+parser.add_argument("--sites_save", action="store_true",
+	help="Save vector of sites after MAF filtering (Binary)")
+parser.add_argument("--indf_save", action="store_true",
+	help="Save estimated singular matrices")
+parser.add_argument("--cost", action="store_true",
+	help="Output min-cost each iteration (ONLY EMU)")
+parser.add_argument("--cost_step", action="store_true",
+	help="Use acceleration based on cost (ONLY EMU)")
+parser.add_argument("--umat", metavar="FILE",
+	help="left singular matrix (.u.npy)")
+parser.add_argument("--svec", metavar="FILE",
+	help="Singular values (.s.npy)")
+parser.add_argument("--wmat", metavar="FILE",
+	help="right singular matrix (.w.npy)")
 args = parser.parse_args()
 
 ### Caller ###
@@ -86,11 +86,11 @@ import shared
 import shared_cy
 
 # Set K
-assert args.e is not None, "Must specify number of eigenvectors to use!"
-if args.k is None:
-	K = args.e
+assert args.n_eig is not None, "Must specify number of eigenvectors to use!"
+if args.n_out is None:
+	K = args.n_eig
 else:
-	K = args.k
+	K = args.n_out
 
 # Reader help function
 def extract_length(filename):
@@ -135,14 +135,14 @@ if args.maf > 0.0:
 	m = D.shape[0]
 
 # Use eigenvectors from previous run
-if args.w is not None:
-	assert args.s is not None, "Must supply both -s and -u along with -w!"
-	assert args.u is not None, "Must supply both -s and -u along with -w!"
+if args.wmat is not None:
+	assert args.svec is not None, "Must supply both -s and -u along with -w!"
+	assert args.umat is not None, "Must supply both -s and -u along with -w!"
 	print("Reading singular matrices from previous run.")
-	W = np.load(args.w)
+	W = np.load(args.wmat)
 	assert W.shape[1] == n, "Number of samples in W must match D!"
-	s = np.load(args.s)
-	U = np.load(args.u)
+	s = np.load(args.svec)
+	U = np.load(args.umat)
 	assert U.shape[0] == m, "Number of sites in U must match D!"
 else:
 	W, s, U = None, None, None
@@ -158,16 +158,17 @@ else:
 
 ##### EMU #####
 if args.mem:
-	print("\nPerforming EMU-mem using " + str(args.e) + " eigenvector(s).")
-	U, s, V = shared.emuMemory(D, f, args.e, K, args.m, args.m_tole, U, s, W, \
-								Bi, n, m, args.svd_power, args.indf_save, \
-								args.out, accel, args.threads)
+	print("\nPerforming EMU-mem using " + str(args.n_eig) + " eigenvector(s).")
+	U, s, V = shared.emuMemory(D, f, args.n_eig, K, args.iter, args.tole, U, \
+								s, W, Bi, n, m, args.svd_power, \
+								args.indf_save, args.out, accel, args.threads)
 else:
-	print("\nPerforming EMU using " + str(args.e) + " eigenvector(s).")
-	U, s, V = shared.emuAlgorithm(D, f, args.e, K, args.m, args.m_tole, U, s, \
-									W, Bi, n, m, args.svd, args.svd_power, \
-									args.indf_save, args.out, accel, args.cost,\
-									args.cost_step, args.threads)
+	print("\nPerforming EMU using " + str(args.n_eig) + " eigenvector(s).")
+	U, s, V = shared.emuAlgorithm(D, f, args.n_eig, K, args.iter, args.tole, \
+									U, s, W, Bi, n, m, args.svd, \
+									args.svd_power, args.indf_save, args.out, \
+									accel, args.cost, args.cost_step, \
+									args.threads)
 
 # Save matrices
 np.savetxt(args.out + ".eigenvecs", V.T, fmt="%.7f")
