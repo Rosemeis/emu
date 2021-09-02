@@ -133,6 +133,8 @@ if args.maf > 0.0:
 	print("Number of sites after MAF filtering (" + str(args.maf) + "): " \
             + str(m))
 	m = D.shape[0]
+assert (not np.allclose(np.max(f), 1.0)) or (not np.allclose(np.min(f), 0.0)), \
+		"Must perform MAF filtering (-f / --maf)!"
 
 # Use eigenvectors from previous run
 if args.wmat is not None:
