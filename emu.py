@@ -16,12 +16,8 @@ python emu.py -m -p fileprefix -e 2 -t 64 -out emu_mem
 
 __author__ = "Jonas Meisner"
 
-# Libraries
+# Argparse
 import argparse
-import os
-import subprocess
-
-##### Argparse #####
 parser = argparse.ArgumentParser(prog="EMU")
 parser.add_argument("--version", action="version", version="%(prog)s alpha 0.72")
 parser.add_argument("-m", "--mem", action="store_true",
@@ -72,6 +68,33 @@ args = parser.parse_args()
 print("EMU 0.72\n")
 assert args.plink is not None, "No input data (-plink)"
 
+# Libraries
+import os
+import subprocess
+from datetime import datetime
+
+# Reader help function
+def extract_length(filename):
+	process = subprocess.Popen(['wc', '-l', filename], stdout=subprocess.PIPE)
+	result, err = process.communicate()
+	return int(result.split()[0])
+
+# Create log-file of arguments
+full = vars(parser.parse_args())
+deaf = vars(parser.parse_args([]))
+with open(args.out + ".args", "w") as f:
+	f.write("EMU v.0.72\n")
+	f.write("Time: " + datetime.now().strftime("%d/%m/%Y %H:%M:%S") + "\n")
+	f.write("Directory: " + str(os.getcwd()) + "\n")
+	f.write("Options:\n")
+	for key in full:
+		if full[key] != deaf[key]:
+			if type(full[key]) is bool:
+				f.write("\t--" + str(key) + "\n")
+			else:
+				f.write("\t--" + str(key) + " " + str(full[key]) + "\n")
+del full, deaf
+
 # Control threads
 os.environ["OMP_NUM_THREADS"] = str(args.threads)
 os.environ["OPENBLAS_NUM_THREADS"] = str(args.threads)
@@ -91,12 +114,6 @@ if args.n_out is None:
 	K = args.n_eig
 else:
 	K = args.n_out
-
-# Reader help function
-def extract_length(filename):
-	process = subprocess.Popen(['wc', '-l', filename], stdout=subprocess.PIPE)
-	result, err = process.communicate()
-	return int(result.split()[0])
 
 # Read data
 print("Reading in data matrix from PLINK files.")
