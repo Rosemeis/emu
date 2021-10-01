@@ -117,7 +117,6 @@ else:
 
 # Read data
 print("Reading in data matrix from PLINK files.")
-assert args.plink is not None, "No valid input given! Must use '-plink'!"
 # Finding length of .fam and .bim file and read .bed file into NumPy array
 n = extract_length(args.plink + ".fam")
 m = extract_length(args.plink + ".bim")
