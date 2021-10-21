@@ -14,13 +14,13 @@ from scipy.sparse.linalg import svds
 from sklearn.utils.extmath import randomized_svd, svd_flip
 
 # Import own scripts
-import halko
-import shared_cy
+from emu import halko
+from emu import shared_cy
 
 ##### EMU #####
 ### Main EMU function ###
-def emuAlgorithm(D, f, e, K, M, M_tole, U, s, W, Bi, n, m, svd_method, \
-					svd_power, indf_save, output, accel, cost, cost_step, t):
+def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
+					output, accel, cost, cost_step, t):
 	E = np.zeros((m, n), dtype=np.float32)
 
 	# Setup acceleration
@@ -34,12 +34,7 @@ def emuAlgorithm(D, f, e, K, M, M_tole, U, s, W, Bi, n, m, svd_method, \
 		diffW_3 = np.zeros((e, n), dtype=np.float32)
 
 	# Initiate E matrix
-	if W is None:
-		# Standard initialization
-		shared_cy.updateE_init(D, f, E, Bi, t)
-	else:
-		# Initiate E based on previous estimates
-		shared_cy.updateE_SVD(D, E, f, U, s, W, Bi, t)
+	shared_cy.updateE_init(D, f, E, Bi, t)
 
 	# Exit without performing EMU
 	if M < 1:
@@ -58,7 +53,7 @@ def emuAlgorithm(D, f, e, K, M, M_tole, U, s, W, Bi, n, m, svd_method, \
 		return U, s, V
 	else:
 		if accel:
-			print("Initiating accelerated EM scheme (1)")
+			print("Initiating accelerated EM scheme (1).")
 		# Estimate initial individual allele frequencies
 		if svd_method == "arpack":
 			U, s, W = svds(E, k=e)
@@ -143,6 +138,7 @@ def emuAlgorithm(D, f, e, K, M, M_tole, U, s, W, Bi, n, m, svd_method, \
 			if diff < M_tole:
 				print("Estimation of individual allele frequencies has converged.")
 				break
+		del prevU
 		if cost:
 			del sumVec
 
@@ -155,14 +151,6 @@ def emuAlgorithm(D, f, e, K, M, M_tole, U, s, W, Bi, n, m, svd_method, \
 				U, s, W = randomized_svd(E, e, n_iter=svd_power)
 			shared_cy.updateE_SVD(D, E, f, U, s, W, Bi, t)
 			del U1, U2, W1, W2, s1, s2, diffU_1, diffU_2, diffU_3, diffW_1, diffW_2, diffW_3
-
-		# Optional save
-		if indf_save:
-			print("Saving singular matrices for future use (.w.npy, .s.npy, .u.npy).")
-			np.save(output + ".u", U)
-			np.save(output + ".s", s)
-			np.save(output + ".w", W)
-		del U, s, W, prevU
 
 		# Estimating SVD
 		shared_cy.standardizeMatrix(E, f, t)
@@ -342,11 +330,11 @@ def customDomainSVD_accel(D, f, e, U, W, Bi, n, m, svd_power, t):
 
 
 ### Main EMU-mem function ###
-def emuMemory(D, f, e, K, M, M_tole, U, s, W, Bi, n, m, svd_power, \
-				indf_save, output, accel, t):
+def emuMemory(D, f, e, K, M, M_tole, Bi, n, m, svd_power, \
+				output, accel, t):
 	# Setup acceleration
 	if accel:
-		print("Using accelerated EM scheme (SqS3)")
+		print("Using accelerated EM scheme (SqS3).")
 		diffU_1 = np.zeros((m, e), dtype=np.float32)
 		diffU_2 = np.zeros((m, e), dtype=np.float32)
 		diffU_3 = np.zeros((m, e), dtype=np.float32)
@@ -356,16 +344,13 @@ def emuMemory(D, f, e, K, M, M_tole, U, s, W, Bi, n, m, svd_power, \
 	if M < 1:
 		print("Warning, no EM-PCA iterations are performed!")
 		print("Inferring set of eigenvector(s).")
-		U, s, V = customFinalSVD(D, f, e, U, s, W, Bi, n, m, svd_power, t)
+		U, s, V = customFinalSVD(D, f, e, None, None, None, Bi, n, m, svd_power, t)
 		return U, s, V
 	else:
 		# Estimate initial individual allele frequencies
 		if accel:
 			print("Initiating accelerated EM scheme (1)")
-		if W is None:
-			U, s, W = customSVD(D, f, e, Bi, n, m, svd_power, t)
-		else:
-			U, s, W = customDomainSVD(D, f, e, U, s, W, Bi, n, m, svd_power, t)
+		U, s, W = customSVD(D, f, e, Bi, n, m, svd_power, t)
 		if not accel:
 			print("Individual allele frequencies estimated (1).")
 		else:
@@ -406,19 +391,12 @@ def emuMemory(D, f, e, K, M, M_tole, U, s, W, Bi, n, m, svd_power, \
 			if diff < M_tole:
 				print("Estimation of individual allele frequencies has converged.")
 				break
+		del prevU
 
 		# Run non-accelerated update to ensure properties of U, s, W
 		if accel:
 			U, s, W = customDomainSVD_accel(D, f, e, U, W, Bi, n, m, svd_power, t)
 			del U1, U2, s1, s2, W1, W2, diffU_1, diffU_2, diffU_3, diffW_1, diffW_2, diffW_3
-
-		# Optional save
-		if indf_save:
-			print("Saving singular matrices for future use (.w.npy, .s.npy, .u.npy).")
-			np.save(output + ".w", W)
-			np.save(output + ".s", s)
-			np.save(output + ".u", U)
-		del prevU
 
 		# Estimating SVD
 		print("Inferring set of eigenvector(s).")

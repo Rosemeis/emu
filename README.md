@@ -1,56 +1,53 @@
 # EMU
-Version 0.72
+EMU is a software for performing principal component analysis (PCA) in the presence of missingness for genetic datasets. EMU can handle both random and non-random missingness by modelling it directly through a truncated SVD approach. EMU uses PLINK files as input.
 
-More information, regarding options in EMU, can be found here: http://www.popgen.dk/software/index.php/EMU
-
-## Citation
+### Citation
 Please cite our paper in *Bioinformatics*: https://doi.org/10.1093/bioinformatics/btab027
 
-## Get EMU and build
-Clone repository and build (It is assumed that OpenMP is installed).
+### Dependencies
+The EMU software relies on the following Python packages that you can install through conda (recommended) or pip:
+
+- numpy
+- cython
+- scipy
+- scikit-learn
+
+You can create an environment through conda easily as follows:
+```
+conda env create -f environment.yml
+```
+
+## Install and build
 ```bash
 git clone https://github.com/Rosemeis/emu.git
-cd emu/
-
-# Install library dependencies
-pip install --user -r requirements.txt
-
-# Build
+cd emu
 python setup.py build_ext --inplace
+pip3 install -e .
 ```
-Dependencies can of course also be installed with *conda*.
+
+You can now run EMU with the `emu` command.
 
 ## Usage
 ### Running EMU
-EMU works on PLINK files directly.
+EMU works directly on PLINK files.
 ```bash
 # See all options
-python emu.py -h
+emu -h
 
-# Using PLINK files directly (.bed, .bim, .fam) - Give prefix
-python emu.py -p test -e 2 -t 64 -o test.emu
+# Using PLINK files directly (test.bed, test.bim, test.fam) - Give prefix
+emu -p test -e 2 -t 64 -o test.emu
 ```
 
-### Acceleration (Default - Recommended)
-An acceleration scheme is being used with both SVD options (halko or arpack). Each iteration will be longer as 2 extra steps are performed but the overall number of iterations for convergence is decreased significantly. The acceleration can be turned off.
+### EM Acceleration (Default - Recommended)
+An acceleration scheme is being used with both SVD options (*halko* or *arpack*). Each iteration will be longer as 2 extra steps are performed but the overall number of iterations for convergence is decreased significantly. However, the EM acceleration can be turned off.
 ```bash
 # No acceleration
-python emu.py -p test -e 2 -t 64 -o test.emu.no_accel --no_accel
-```
-
-### Saving and loading factor matrices
-It is recommended to save estimated factor matrices of the SVD using the parameter "-indf_save". They can then be used a start point for a new run if the results have not converged or if user wants to perform selection scan afterwards population structure inference. This saves a ton of time in the estimations.
-```bash
-# Saves factor matrices (test.emu.w.npy, test.emu.s.npy, test.emu.u.npy)
-python emu.py -p test -e 2 -t 64 -o test.emu --indf_save
-
-# Use factor matrices as start point
-python emu.py -p test -e 2 -t 64 -o test.emu --umat test.emu.u.npy --svec test.emu.s.npy --wmat test.emu.w.npy
+emu -p test -e 2 -t 64 -o test.emu.no_accel --no_accel
 ```
 
 ### Memory efficient implementation
-A more memory efficient implementation has been added. It is based of the Halko algorithm but using custom matrix multiplications that can handle decomposed matrices. Only factor matrices as well as the 2-bit data matrix is kept in memory.
+A more memory efficient implementation has been added. It is based of the randomized SVD algorithm ([Halko et al.](https://arxiv.org/abs/0909.4061)) but using custom matrix multiplications that can handle decomposed matrices. Only factor matrices as well as the 2-bit data matrix is kept in memory.
 ```bash
-# Example run
-python emu.py -m -p test -e 2 -t 64 -o test.emu.mem
+# Example run using '-m' argument
+emu -m -p test -e 2 -t 64 -o test.emu.mem
 ```
