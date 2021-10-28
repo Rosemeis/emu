@@ -49,6 +49,8 @@ parser.add_argument("--svd", metavar="STRING", default="halko",
 	help="Method for performing truncated SVD (arpack/halko)")
 parser.add_argument("--svd_power", metavar="INT", type=int, default=4,
 	help="Number of power iterations in randomized SVD (Halko)")
+parser.add_argument("--loadings", action="store-true",
+	hep="Save SNP loadings")
 parser.add_argument("--maf_save", action="store_true",
 	help="Save estimated population allele frequencies")
 parser.add_argument("--sites_save", action="store_true",
@@ -168,6 +170,11 @@ def main():
 	np.savetxt(args.out + ".eigenvals", s**2/float(m), fmt="%.7f")
 	print("Saved eigenvalue(s) as " + args.out + ".eigenvals (Text).")
 	del V, s
+
+	# Save loadings
+	if args.loadings:
+		np.save(args.out + ".loadings", U)
+		print("Saved SNP loadings as " +  args.out + ".loadings (Binary).")
 
 	# Perform genome-wide selection scan
 	if args.selection:
