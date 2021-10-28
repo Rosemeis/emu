@@ -174,7 +174,7 @@ def main():
 	# Save loadings
 	if args.loadings:
 		np.save(args.out + ".loadings", U)
-		print("Saved SNP loadings as " +  args.out + ".loadings (Binary).")
+		print("Saved SNP loadings as " +  args.out + ".loadings.npy (Binary).")
 
 	# Perform genome-wide selection scan
 	if args.selection:
