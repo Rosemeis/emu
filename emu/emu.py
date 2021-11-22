@@ -49,7 +49,7 @@ parser.add_argument("--svd", metavar="STRING", default="halko",
 	help="Method for performing truncated SVD (arpack/halko)")
 parser.add_argument("--svd_power", metavar="INT", type=int, default=4,
 	help="Number of power iterations in randomized SVD (Halko)")
-parser.add_argument("--loadings", action="store-true",
+parser.add_argument("--loadings", action="store_true",
 	hep="Save SNP loadings")
 parser.add_argument("--maf_save", action="store_true",
 	help="Save estimated population allele frequencies")
