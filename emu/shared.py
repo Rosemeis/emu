@@ -20,7 +20,7 @@ from emu import shared_cy
 ##### EMU #####
 ### Main EMU function ###
 def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
-					output, accel, cost, cost_step, t):
+					output, accel, cost, cost_step, seed, t):
 	E = np.zeros((m, n), dtype=np.float32)
 
 	# Setup acceleration
@@ -48,7 +48,7 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 			U, V = svd_flip(U, V)
 		elif svd_method == "halko":
 			print("Halko")
-			U, s, V = randomized_svd(E, K, n_iter=svd_power)
+			U, s, V = randomized_svd(E, K, n_iter=svd_power, random_state=seed)
 		del E
 		return U, s, V
 	else:
@@ -59,7 +59,7 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 			U, s, W = svds(E, k=e)
 			U, W = svd_flip(U, W)
 		elif svd_method == "halko":
-			U, s, W = randomized_svd(E, e, n_iter=svd_power)
+			U, s, W = randomized_svd(E, e, n_iter=svd_power, random_state=seed)
 
 		# Estimate cost
 		if cost:
@@ -84,7 +84,8 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 					U1, s1, W1 = svds(E, k=e)
 					U1, W1 = svd_flip(U1, W1)
 				elif svd_method == "halko":
-					U1, s1, W1 = randomized_svd(E, e, n_iter=svd_power)
+					U1, s1, W1 = randomized_svd(E, e, n_iter=svd_power, \
+												random_state=seed)
 				W1 = W1*s1.reshape((e, 1))
 				shared_cy.matMinus(U1, U, diffU_1)
 				shared_cy.matMinus(W1, W, diffW_1)
@@ -95,7 +96,8 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 					U2, s2, W2 = svds(E, k=e)
 					U2, W2 = svd_flip(U2, W2)
 				elif svd_method == "halko":
-					U2, s2, W2 = randomized_svd(E, e, n_iter=svd_power)
+					U2, s2, W2 = randomized_svd(E, e, n_iter=svd_power, \
+												random_state=seed)
 				W2 = W2*s2.reshape((e, 1))
 				shared_cy.matMinus(U2, U1, diffU_2)
 				shared_cy.matMinus(W2, W1, diffW_2)
@@ -105,6 +107,9 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 				shared_cy.matMinus(diffW_2, diffW_1, diffW_3)
 				sv2_U = shared_cy.matSumSquare(diffU_3)
 				sv2_W = shared_cy.matSumSquare(diffW_3)
+				if (i == 0) and (np.isclose(sv2_U, 0.0)):
+					print("No missingness in data. Skipping iterative approach!")
+					break
 				alpha_U = max(1.0, np.sqrt(sr2_U/sv2_U))
 				alpha_W = max(1.0, np.sqrt(sr2_W/sv2_W))
 
@@ -126,7 +131,8 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 					U, s, W = svds(E, k=e)
 					U, W = svd_flip(U, W)
 				elif svd_method == "halko":
-					U, s, W = randomized_svd(E, e, n_iter=svd_power)
+					U, s, W = randomized_svd(E, e, n_iter=svd_power, \
+											random_state=seed)
 				shared_cy.updateE_SVD(D, E, f, U, s, W, Bi, t)
 				if cost:
 					shared_cy.frobenius(D, f, U, s, W, sumVec, Bi, t)
@@ -148,7 +154,8 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 				U, s, W = svds(E, k=e)
 				U, W = svd_flip(U, W)
 			elif svd_method == "halko":
-				U, s, W = randomized_svd(E, e, n_iter=svd_power)
+				U, s, W = randomized_svd(E, e, n_iter=svd_power, \
+										random_state=seed)
 			shared_cy.updateE_SVD(D, E, f, U, s, W, Bi, t)
 			del U1, U2, W1, W2, s1, s2, diffU_1, diffU_2, diffU_3, diffW_1, diffW_2, diffW_3
 
@@ -159,7 +166,8 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 			U, s, V = svds(E, k=K)
 			U, s, V = U[:, ::-1], s[::-1], V[::-1, :]
 		elif svd_method == "halko":
-			U, s, V = randomized_svd(E, K, n_iter=svd_power)
+			U, s, V = randomized_svd(E, K, n_iter=svd_power, \
+									random_state=seed)
 		del E
 		return U, s, V
 

@@ -22,7 +22,7 @@ def extract_length(filename):
 
 # Argparse
 parser = argparse.ArgumentParser(prog="EMU")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.75")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.8")
 parser.add_argument("-m", "--mem", action="store_true",
 	help="EMU-mem variant")
 parser.add_argument("-p", "--plink", metavar="FILE-PREFIX",
@@ -59,6 +59,8 @@ parser.add_argument("--cost", action="store_true",
 	help="Output min-cost each iteration (ONLY EMU)")
 parser.add_argument("--cost_step", action="store_true",
 	help="Use acceleration based on cost (ONLY EMU)")
+parser.add_argument("--seed", metavar="INT", type=int, default=0,
+	help="Set random seed for scikit-learn randomized SVD")
 
 
 ##### EMU #####
@@ -67,14 +69,14 @@ def main():
 	if len(sys.argv) < 2:
 		parser.print_help()
 		sys.exit()
-	print("EMU v.0.75\n")
+	print("EMU v.0.8\n")
 	assert args.plink is not None, "No input data (-plink)"
 
 	# Create log-file of arguments
 	full = vars(parser.parse_args())
 	deaf = vars(parser.parse_args([]))
 	with open(args.out + ".args", "w") as f:
-		f.write("EMU v.0.75\n")
+		f.write("EMU v.0.8\n")
 		f.write("Time: " + datetime.now().strftime("%d/%m/%Y %H:%M:%S") + "\n")
 		f.write("Directory: " + str(os.getcwd()) + "\n")
 		f.write("Options:\n")
@@ -162,7 +164,7 @@ def main():
 		U, s, V = shared.emuAlgorithm(D, f, args.n_eig, K, args.iter, args.tole, \
 										Bi, n, m, args.svd, args.svd_power, \
 										args.out, accel, args.cost, \
-										args.cost_step, args.threads)
+										args.cost_step, args.seed, args.threads)
 
 	# Save matrices
 	np.savetxt(args.out + ".eigenvecs", V.T, fmt="%.7f")
