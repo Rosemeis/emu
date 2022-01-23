@@ -47,7 +47,7 @@ parser.add_argument("--tole", metavar="FLOAT", type=float, default=5e-7,
 	help="Tolerance in update for individual allele frequencies (5e-7)")
 parser.add_argument("--svd", metavar="STRING", default="halko",
 	help="Method for performing truncated SVD (arpack/halko)")
-parser.add_argument("--svd_power", metavar="INT", type=int, default=4,
+parser.add_argument("--svd_power", metavar="INT", type=int, default=5,
 	help="Number of power iterations in randomized SVD (Halko)")
 parser.add_argument("--loadings", action="store_true",
 	help="Save SNP loadings")
