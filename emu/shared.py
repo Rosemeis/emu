@@ -11,13 +11,20 @@ __author__ = "Jonas Meisner"
 import numpy as np
 from scipy import linalg
 from scipy.sparse.linalg import svds
-from sklearn.utils.extmath import randomized_svd, svd_flip
 
 # Import own scripts
 from emu import halko
 from emu import shared_cy
 
 ##### EMU #####
+# Flip signs of SVD output - Based on scikit-learn (svd_flip)
+def signFlip(U, Vt):
+    maxCols = np.argmax(np.abs(U), axis=0)
+    signs = np.sign(U[maxCols, range(U.shape[1])])
+    U *= signs
+    Vt *= signs[:, np.newaxis]
+    return U, Vt
+
 ### PCAone Halko ###
 def halkoPCAone(E, k, n_iter, random_state):
 	m, n = E.shape
@@ -62,10 +69,10 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 		if svd_method == "arpack":
 			U, s, V = svds(E, k=K)
 			U, s, V = U[:, ::-1], s[::-1], V[::-1, :]
-			U, V = svd_flip(U, V)
+			U, V = signFlip(U, V)
 		elif svd_method == "halko":
 			U, s, V = halkoPCAone(E, K, svd_power, seed)
-			U, V = svd_flip(U, V)
+			U, V = signFlip(U, V)
 		del E
 		return U, s, V
 	else:
@@ -74,10 +81,10 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 		# Estimate initial individual allele frequencies
 		if svd_method == "arpack":
 			U, s, W = svds(E, k=e)
-			U, W = svd_flip(U, W)
+			U, W = signFlip(U, W)
 		elif svd_method == "halko":
 			U, s, W = halkoPCAone(E, K, svd_power, seed)
-			U, W = svd_flip(U, W)
+			U, W = signFlip(U, W)
 
 		# Estimate cost
 		if cost:
@@ -100,10 +107,10 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 			if accel:
 				if svd_method == "arpack":
 					U1, s1, W1 = svds(E, k=e)
-					U1, W1 = svd_flip(U1, W1)
+					U1, W1 = signFlip(U1, W1)
 				elif svd_method == "halko":
 					U1, s1, W1 = halkoPCAone(E, K, svd_power, seed)
-					U1, W1 = svd_flip(U1, W1)
+					U1, W1 = signFlip(U1, W1)
 				W1 = W1*s1.reshape((e, 1))
 				shared_cy.matMinus(U1, U, diffU_1)
 				shared_cy.matMinus(W1, W, diffW_1)
@@ -112,10 +119,10 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 				shared_cy.updateE_SVD_accel(D, E, f, U1, W1, Bi, t)
 				if svd_method == "arpack":
 					U2, s2, W2 = svds(E, k=e)
-					U2, W2 = svd_flip(U2, W2)
+					U2, W2 = signFlip(U2, W2)
 				elif svd_method == "halko":
 					U2, s2, W2 = halkoPCAone(E, K, svd_power, seed)
-					U2, W2 = svd_flip(U2, W2)
+					U2, W2 = signFlip(U2, W2)
 				W2 = W2*s2.reshape((e, 1))
 				shared_cy.matMinus(U2, U1, diffU_2)
 				shared_cy.matMinus(W2, W1, diffW_2)
@@ -147,10 +154,10 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 			else:
 				if svd_method == "arpack":
 					U, s, W = svds(E, k=e)
-					U, W = svd_flip(U, W)
+					U, W = signFlip(U, W)
 				elif svd_method == "halko":
 					U, s, W = halkoPCAone(E, K, svd_power, seed)
-					U, W = svd_flip(U, W)
+					U, W = signFlip(U, W)
 				shared_cy.updateE_SVD(D, E, f, U, s, W, Bi, t)
 				if cost:
 					shared_cy.frobenius(D, f, U, s, W, sumVec, Bi, t)
@@ -170,10 +177,10 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 		if accel:
 			if svd_method == "arpack":
 				U, s, W = svds(E, k=e)
-				U, W = svd_flip(U, W)
+				U, W = signFlip(U, W)
 			elif svd_method == "halko":
 				U, s, W = halkoPCAone(E, K, svd_power, seed)
-				U, W = svd_flip(U, W)
+				U, W = signFlip(U, W)
 			shared_cy.updateE_SVD(D, E, f, U, s, W, Bi, t)
 			del U1, U2, W1, W2, s1, s2, diffU_1, diffU_2, diffU_3, diffW_1, diffW_2, diffW_3
 
@@ -185,7 +192,7 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 			U, s, V = U[:, ::-1], s[::-1], V[::-1, :]
 		elif svd_method == "halko":
 			U, s, V = halkoPCAone(E, K, svd_power, seed)
-			U, W = svd_flip(U, W)
+			U, W = signFlip(U, W)
 		del E
 		return U, s, V
 
@@ -297,7 +304,7 @@ def customSVD(D, f, e, Bi, n, m, svd_power, t):
 	U = np.dot(Q, Uhat)
 
 	# Correct sign
-	U, V = svd_flip(U, V)
+	U, V = signFlip(U, V)
 	return U[:,:e], s[:e], V[:e,:]
 
 # Map to domain SVD
@@ -314,7 +321,7 @@ def customDomainSVD(D, f, e, U, s, W, Bi, n, m, svd_power, t):
 	U = np.dot(Q, Uhat)
 
 	# Correct sign
-	U, V = svd_flip(U, V)
+	U, V = signFlip(U, V)
 	return U[:,:e], s[:e], V[:e,:]
 
 # Final SVD
@@ -334,7 +341,7 @@ def customFinalSVD(D, f, e, U, s, W, Bi, n, m, svd_power, t):
 	U = np.dot(Q, Uhat)
 
 	# Correct sign
-	U, V = svd_flip(U, V)
+	U, V = signFlip(U, V)
 	return U[:,:e], s[:e], V[:e,:]
 
 # Acceleration - Map to domain SVD
@@ -351,7 +358,7 @@ def customDomainSVD_accel(D, f, e, U, W, Bi, n, m, svd_power, t):
 	U = np.dot(Q, Uhat)
 
 	# Correct sign
-	U, V = svd_flip(U, V)
+	U, V = signFlip(U, V)
 	return U[:,:e], s[:e], V[:e,:]
 
 

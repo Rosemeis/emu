@@ -22,7 +22,7 @@ def extract_length(filename):
 
 # Argparse
 parser = argparse.ArgumentParser(prog="EMU")
-parser.add_argument("--version", action="version", version="%(prog)s alpha 0.8")
+parser.add_argument("--version", action="version", version="%(prog)s alpha 0.9")
 parser.add_argument("-m", "--mem", action="store_true",
 	help="EMU-mem variant")
 parser.add_argument("-p", "--plink", metavar="FILE-PREFIX",
@@ -69,14 +69,14 @@ def main():
 	if len(sys.argv) < 2:
 		parser.print_help()
 		sys.exit()
-	print("EMU v.0.8\n")
+	print("EMU v.0.9\n")
 	assert args.plink is not None, "No input data (-plink)"
 
 	# Create log-file of arguments
 	full = vars(parser.parse_args())
 	deaf = vars(parser.parse_args([]))
 	with open(args.out + ".args", "w") as f:
-		f.write("EMU v.0.8\n")
+		f.write("EMU v.0.9\n")
 		f.write("Time: " + datetime.now().strftime("%d/%m/%Y %H:%M:%S") + "\n")
 		f.write("Directory: " + str(os.getcwd()) + "\n")
 		f.write("Options:\n")

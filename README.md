@@ -10,7 +10,6 @@ The EMU software relies on the following Python packages that you can install th
 - numpy
 - cython
 - scipy
-- scikit-learn
 
 You can create an environment through conda easily as follows:
 ```

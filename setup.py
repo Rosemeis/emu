@@ -19,7 +19,7 @@ extensions = [Extension(
 
 setup(
 	name="EMU",
-	version="0.8",
+	version="0.9",
 	description="EM-PCA for performing PCA in the presence of missingness",
 	author="Jonas Meisner",
 	packages=["emu"],
