@@ -22,7 +22,7 @@ cpdef matMul_Freq(unsigned char[:,::1] D, float[::1] f, float[:,::1] X, \
 	cdef int i, j, k, b, bytepart
 	cdef float e
 	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
+		for j in prange(m, num_threads=t):
 			i = 0
 			for b in range(Bi):
 				byte = D[j,b]
@@ -50,7 +50,7 @@ cpdef matMulTrans_Freq(unsigned char[:,::1] D, float[::1] f, float[:,:] Y, \
 	cdef int i, j, k, b, bytepart
 	cdef float e
 	with nogil:
-		for b in prange(Bi, num_threads=t, schedule='static'):
+		for b in prange(Bi, num_threads=t):
 			for j in range(m):
 				byte = D[j,b]
 				i = b*4
@@ -79,7 +79,7 @@ cpdef matMulFinal_Freq(unsigned char[:,::1] D, float[::1] f, float[:,:] X, \
 	cdef int i, j, k, b, bytepart
 	cdef float e
 	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
+		for j in prange(m, num_threads=t):
 			i = 0
 			for b in range(Bi):
 				byte = D[j,b]
@@ -107,7 +107,7 @@ cpdef matMulTransFinal_Freq(unsigned char[:,::1] D, float[::1] f, float[:,:] Y,\
 	cdef int i, j, k, b, bytepart
 	cdef float e
 	with nogil:
-		for b in prange(Bi, num_threads=t, schedule='static'):
+		for b in prange(Bi, num_threads=t):
 			for j in range(m):
 				byte = D[j,b]
 				i = b*4
@@ -139,7 +139,7 @@ cpdef matMul_SVD_domain(unsigned char[:,::1] D, float[::1] f, float[:,:] U, \
 	cdef int i, j, k, v, b, bytepart
 	cdef float e
 	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
+		for j in prange(m, num_threads=t):
 			i = 0
 			for b in range(Bi):
 				byte = D[j,b]
@@ -176,7 +176,7 @@ cpdef matMulTrans_SVD_domain(unsigned char[:,::1] D, float[::1] f, \
 	cdef int i, j, k, v, b, bytepart
 	cdef float e
 	with nogil:
-		for b in prange(Bi, num_threads=t, schedule='static'):
+		for b in prange(Bi, num_threads=t):
 			for j in range(m):
 				byte = D[j,b]
 				i = b*4
@@ -213,7 +213,7 @@ cpdef matMulFinal_SVD(unsigned char[:,::1] D, float[::1] f, float[:,:] U, \
 	cdef int i, j, k, v, b, bytepart
 	cdef float e
 	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
+		for j in prange(m, num_threads=t):
 			i = 0
 			for b in range(Bi):
 				byte = D[j,b]
@@ -248,7 +248,7 @@ cpdef matMulTransFinal_SVD(unsigned char[:,::1] D, float[::1] f, float[:,:] U, \
 	cdef int i, j, k, v, b, bytepart
 	cdef float e
 	with nogil:
-		for b in prange(Bi, num_threads=t, schedule='static'):
+		for b in prange(Bi, num_threads=t):
 			for j in range(m):
 				byte = D[j,b]
 				i = b*4
@@ -285,7 +285,7 @@ cpdef matMul_SVD_domain_accel(unsigned char[:,::1] D, float[::1] f, \
 	cdef int i, j, k, v, b, bytepart
 	cdef float e
 	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
+		for j in prange(m, num_threads=t):
 			i = 0
 			for b in range(Bi):
 				byte = D[j,b]
@@ -321,7 +321,7 @@ cpdef matMulTrans_SVD_domain_accel(unsigned char[:,::1] D, float[::1] f, \
 	cdef int i, j, k, v, b, bytepart
 	cdef float e
 	with nogil:
-		for b in prange(Bi, num_threads=t, schedule='static'):
+		for b in prange(Bi, num_threads=t):
 			for j in range(m):
 				byte = D[j,b]
 				i = b*4

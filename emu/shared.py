@@ -9,7 +9,6 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import numpy as np
-from scipy import linalg
 from scipy.sparse.linalg import svds
 
 # Import own scripts
@@ -47,6 +46,9 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 					output, accel, cost, cost_step, seed, t):
 	E = np.zeros((m, n), dtype=np.float32)
 
+	# Set random seed
+	np.random.seed(seed)
+
 	# Setup acceleration
 	if accel:
 		print("Using accelerated EM scheme (SqS3)")
@@ -83,7 +85,7 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 			U, s, W = svds(E, k=e)
 			U, W = signFlip(U, W)
 		elif svd_method == "halko":
-			U, s, W = halkoPCAone(E, K, svd_power, seed)
+			U, s, W = halkoPCAone(E, e, svd_power, seed)
 			U, W = signFlip(U, W)
 
 		# Estimate cost
@@ -109,7 +111,7 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 					U1, s1, W1 = svds(E, k=e)
 					U1, W1 = signFlip(U1, W1)
 				elif svd_method == "halko":
-					U1, s1, W1 = halkoPCAone(E, K, svd_power, seed)
+					U1, s1, W1 = halkoPCAone(E, e, svd_power, seed)
 					U1, W1 = signFlip(U1, W1)
 				W1 = W1*s1.reshape((e, 1))
 				shared_cy.matMinus(U1, U, diffU_1)
@@ -121,7 +123,7 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 					U2, s2, W2 = svds(E, k=e)
 					U2, W2 = signFlip(U2, W2)
 				elif svd_method == "halko":
-					U2, s2, W2 = halkoPCAone(E, K, svd_power, seed)
+					U2, s2, W2 = halkoPCAone(E, e, svd_power, seed)
 					U2, W2 = signFlip(U2, W2)
 				W2 = W2*s2.reshape((e, 1))
 				shared_cy.matMinus(U2, U1, diffU_2)
@@ -156,7 +158,7 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 					U, s, W = svds(E, k=e)
 					U, W = signFlip(U, W)
 				elif svd_method == "halko":
-					U, s, W = halkoPCAone(E, K, svd_power, seed)
+					U, s, W = halkoPCAone(E, e, svd_power, seed)
 					U, W = signFlip(U, W)
 				shared_cy.updateE_SVD(D, E, f, U, s, W, Bi, t)
 				if cost:
@@ -179,7 +181,7 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 				U, s, W = svds(E, k=e)
 				U, W = signFlip(U, W)
 			elif svd_method == "halko":
-				U, s, W = halkoPCAone(E, K, svd_power, seed)
+				U, s, W = halkoPCAone(E, e, svd_power, seed)
 				U, W = signFlip(U, W)
 			shared_cy.updateE_SVD(D, E, f, U, s, W, Bi, t)
 			del U1, U2, W1, W2, s1, s2, diffU_1, diffU_2, diffU_3, diffW_1, diffW_2, diffW_3
@@ -197,174 +199,118 @@ def emuAlgorithm(D, f, e, K, M, M_tole, Bi, n, m, svd_method, svd_power, \
 		return U, s, V
 
 ##### EMU-mem ######
-### Range finder functions of Q
-def range_finder(D, f, e, Bi, n, m, svd_power, t):
-	K = e + 10
-	C = np.zeros((m, K), dtype=np.float32)
+### 2-bit PCAone Halko
+def customSVD(D, f, k, Bi, n, m, n_iter, t):
+	K = k + 10
+	G = np.zeros((m, K), dtype=np.float32)
+	H = np.zeros((n, K), dtype=np.float32)
 
 	# Sample Gaussian vectors
-	np.random.seed(0)
-	Q = np.random.normal(size=(n, K)).astype(np.float32, copy=False)
+	Omg = np.random.standard_normal(size=(n, K)).astype(np.float32)
 
 	# Power iterations
-	for pow_i in range(svd_power):
-		C.fill(0)
-		halko.matMul_Freq(D, f, Q, C, Bi, n, m, t)
-		Q.fill(0)
-		halko.matMulTrans_Freq(D, f, C, Q, Bi, n, m, t)
-	C.fill(0)
-	halko.matMul_Freq(D, f, Q, C, Bi, n, m, t)
-	Q, _ = linalg.qr(C, mode='economic')
-	return Q
+	for p in range(n_iter):
+		if p > 0:
+			Omg, _ = np.linalg.qr(H, mode="reduced")
+		G.fill(0)
+		halko.matMul_Freq(D, f, Omg, G, Bi, n, m, t)
+		H.fill(0)
+		halko.matMulTrans_Freq(D, f, G, H, Bi, n, m, t)
+	Q, R = np.linalg.qr(G, mode="reduced")
+	B = np.linalg.solve(R.T, H.T)
+	Uhat, s, V = np.linalg.svd(B, full_matrices=False)
+	del B
+	U = np.dot(Q, Uhat)
+	U, V = signFlip(U, V)
+	return U[:,:k], s[:k], V[:k,:]
 
-# Range finder of Q when mapping back to domain for E=WSU.T
-def range_finder_domain(D, f, e, U, s, W, Bi, n, m, svd_power, t):
-	K = e + 10
-	C = np.zeros((m, K), dtype=np.float32)
+# CustomSVD when mapping back to domain for E=WSU.T
+def customDomainSVD(D, f, k, U, s, W, Bi, n, m, n_iter, t):
+	K = k + 10
+	G = np.zeros((m, K), dtype=np.float32)
+	H = np.zeros((n, K), dtype=np.float32)
 
 	# Sample Gaussian vectors
-	np.random.seed(0)
-	Q = np.random.normal(size=(n, K)).astype(np.float32, copy=False)
+	Omg = np.random.standard_normal(size=(n, K)).astype(np.float32)
 
 	# Power iterations
-	for pow_i in range(svd_power):
-		C.fill(0)
-		halko.matMul_SVD_domain(D, f, U, s, W, Q, C, Bi, n, m, t)
-		Q.fill(0)
-		halko.matMulTrans_SVD_domain(D, f, U, s, W, C, Q, Bi, n, m, t)
-	C.fill(0)
-	halko.matMul_SVD_domain(D, f, U, s, W, Q, C, Bi, n, m, t)
-	Q, _ = linalg.qr(C, mode='economic')
-	return Q
+	for p in range(n_iter):
+		if p > 0:
+			Omg, _ = np.linalg.qr(H, mode="reduced")
+		G.fill(0)
+		halko.matMul_SVD_domain(D, f, U, s, W, Omg, G, Bi, n, m, t)
+		H.fill(0)
+		halko.matMulTrans_SVD_domain(D, f, U, s, W, G, H, Bi, n, m, t)
+	Q, R = np.linalg.qr(G, mode="reduced")
+	B = np.linalg.solve(R.T, H.T)
+	Uhat, s, V = np.linalg.svd(B, full_matrices=False)
+	del B
+	U = np.dot(Q, Uhat)
+	U, V = signFlip(U, V)
+	return U[:,:k], s[:k], V[:k,:]
 
-# Range finder of Q for final iteration
-def range_finder_final(D, f, e, U, s, W, Bi, n, m, svd_power, t):
-	K = e + 10
-	C = np.zeros((m, K), dtype=np.float32)
+# CustomSVD for final iteration
+def customFinalSVD(D, f, k, U, s, W, Bi, n, m, n_iter, t):
+	K = k + 10
+	G = np.zeros((m, K), dtype=np.float32)
+	H = np.zeros((n, K), dtype=np.float32)
 
 	# Sample Gaussian vectors
-	np.random.seed(0)
-	Q = np.random.normal(size=(n, K)).astype(np.float32, copy=False)
+	Omg = np.random.standard_normal(size=(n, K)).astype(np.float32)
 
 	# Power iterations
-	for pow_i in range(svd_power):
+	for p in range(n_iter):
+		if p > 0:
+			Omg, _ = np.linalg.qr(H, mode="reduced")
+		G.fill(0)
 		if W is None:
-			C.fill(0)
-			halko.matMulFinal_Freq(D, f, Q, C, Bi, n, m, t)
-			C, _ = linalg.lu(C, permute_l=True)
-			Q = np.zeros((n, K), dtype=np.float32)
-			halko.matMulTransFinal_Freq(D, f, C, Q, Bi, n, m, t)
-			Q, _ = linalg.lu(Q, permute_l=True)
+			halko.matMulFinal_Freq(D, f, Omg, G, Bi, n, m, t)
+			H.fill(0)
+			halko.matMulTransFinal_Freq(D, f, G, H, Bi, n, m, t)
 		else:
-			C.fill(0)
-			halko.matMulFinal_SVD(D, f, U, s, W, Q, C, Bi, n, m, t)
-			C, _ = linalg.lu(C, permute_l=True)
-			Q = np.zeros((n, K), dtype=np.float32)
-			halko.matMulTransFinal_SVD(D, f, U, s, W, C, Q, Bi, n, m, t)
-			Q, _ = linalg.lu(Q, permute_l=True)
-	C.fill(0)
-	if W is None:
-		halko.matMulFinal_Freq(D, f, Q, C, Bi, n, m, t)
-	else:
-		halko.matMulFinal_SVD(D, f, U, s, W, Q, C, Bi, n, m, t)
-	Q, _ = linalg.qr(C, mode='economic')
-	return Q
+			halko.matMulFinal_SVD(D, f, U, s, W, Omg, G, Bi, n, m, t)
+			H.fill(0)
+			halko.matMulTransFinal_SVD(D, f, U, s, W, G, H, Bi, n, m, t)
+	Q, R = np.linalg.qr(G, mode="reduced")
+	B = np.linalg.solve(R.T, H.T)
+	Uhat, s, V = np.linalg.svd(B, full_matrices=False)
+	del B
+	U = np.dot(Q, Uhat)
+	U, V = signFlip(U, V)
+	return U[:,:k], s[:k], V[:k,:]
 
-# Acceleration - Range finder of Q when mapping back to domain for E=USW.T
-def range_finder_domain_accel(D, f, e, U, W, Bi, n, m, svd_power, t):
-	K = e + 10
-	C = np.zeros((m, K), dtype=np.float32)
+# CustomSVD for acceleration in domain
+def customDomainSVD_accel(D, f, k, U, W, Bi, n, m, n_iter, t):
+	K = k + 10
+	G = np.zeros((m, K), dtype=np.float32)
+	H = np.zeros((n, K), dtype=np.float32)
 
 	# Sample Gaussian vectors
-	np.random.seed(0)
-	Q = np.random.normal(size=(n, K)).astype(np.float32, copy=False)
+	Omg = np.random.standard_normal(size=(n, K)).astype(np.float32)
 
 	# Power iterations
-	for pow_i in range(svd_power):
-		C.fill(0)
-		halko.matMul_SVD_domain_accel(D, f, U, W, Q, C, Bi, n, m, t)
-		Q.fill(0)
-		halko.matMulTrans_SVD_domain_accel(D, f, U, W, C, Q, Bi, n, m, t)
-	C.fill(0)
-	halko.matMul_SVD_domain_accel(D, f, U, W, Q, C, Bi, n, m, t)
-	Q, _ = linalg.qr(C, mode='economic')
-	return Q
-
-### Iterative SVD functions
-def customSVD(D, f, e, Bi, n, m, svd_power, t):
-	Q = range_finder(D, f, e, Bi, n, m, svd_power, t)
-	Bt = np.zeros((n, Q.shape[1]), dtype=np.float32)
-
-	# B.T = dot(E.T, Q)
-	halko.matMulTrans_Freq(D, f, Q, Bt, Bi, n, m, t)
-
-	# SVD on thin matrix
-	Uhat, s, V = linalg.svd(Bt.T, full_matrices=False)
-	del Bt
+	for p in range(n_iter):
+		if p > 0:
+			Omg, _ = np.linalg.qr(H, mode="reduced")
+		G.fill(0)
+		halko.matMul_SVD_domain_accel(D, f, U, W, Omg, G, Bi, n, m, t)
+		H.fill(0)
+		halko.matMulTrans_SVD_domain_accel(D, f, U, W, G, H, Bi, n, m, t)
+	Q, R = np.linalg.qr(G, mode="reduced")
+	B = np.linalg.solve(R.T, H.T)
+	Uhat, s, V = np.linalg.svd(B, full_matrices=False)
+	del B
 	U = np.dot(Q, Uhat)
-
-	# Correct sign
 	U, V = signFlip(U, V)
-	return U[:,:e], s[:e], V[:e,:]
-
-# Map to domain SVD
-def customDomainSVD(D, f, e, U, s, W, Bi, n, m, svd_power, t):
-	Q = range_finder_domain(D, f, e, U, s, W, Bi, n, m, svd_power, t)
-	Bt = np.zeros((n, Q.shape[1]), dtype=np.float32)
-
-	# B.T = dot(E.T, Q)
-	halko.matMulTrans_SVD_domain(D, f, U, s, W, Q, Bt, Bi, n, m, t)
-
-	# SVD on thin matrix
-	Uhat, s, V = linalg.svd(Bt.T, full_matrices=False)
-	del Bt
-	U = np.dot(Q, Uhat)
-
-	# Correct sign
-	U, V = signFlip(U, V)
-	return U[:,:e], s[:e], V[:e,:]
-
-# Final SVD
-def customFinalSVD(D, f, e, U, s, W, Bi, n, m, svd_power, t):
-	Q = range_finder_final(D, f, e, U, s, W, Bi, n, m, svd_power, t)
-	Bt = np.zeros((n, Q.shape[1]), dtype=np.float32)
-
-	# B.T = dot(E.T, Q)
-	if W is None:
-		halko.matMulTransFinal_Freq(D, f, Q, Bt, Bi, n, m, t)
-	else:
-		halko.matMulTransFinal_SVD(D, f, U, s, W, Q, Bt, Bi, n, m, t)
-
-	# SVD on thin matrix
-	Uhat, s, V = linalg.svd(Bt.T, full_matrices=False)
-	del Bt
-	U = np.dot(Q, Uhat)
-
-	# Correct sign
-	U, V = signFlip(U, V)
-	return U[:,:e], s[:e], V[:e,:]
-
-# Acceleration - Map to domain SVD
-def customDomainSVD_accel(D, f, e, U, W, Bi, n, m, svd_power, t):
-	Q = range_finder_domain_accel(D, f, e, U, W, Bi, n, m, svd_power, t)
-	Bt = np.zeros((n, Q.shape[1]), dtype=np.float32)
-
-	# B.T = dot(E.T, Q)
-	halko.matMulTrans_SVD_domain_accel(D, f, U, W, Q, Bt, Bi, n, m, t)
-
-	# SVD on thin matrix
-	Uhat, s, V = linalg.svd(Bt.T, full_matrices=False)
-	del Bt
-	U = np.dot(Q, Uhat)
-
-	# Correct sign
-	U, V = signFlip(U, V)
-	return U[:,:e], s[:e], V[:e,:]
+	return U[:,:k], s[:k], V[:k,:]
 
 
 ### Main EMU-mem function ###
 def emuMemory(D, f, e, K, M, M_tole, Bi, n, m, svd_power, \
-				output, accel, t):
+				output, accel, seed, t):
+	# Set random seed
+	np.random.seed(seed)
+
 	# Setup acceleration
 	if accel:
 		print("Using accelerated EM scheme (SqS3).")
@@ -377,7 +323,7 @@ def emuMemory(D, f, e, K, M, M_tole, Bi, n, m, svd_power, \
 	if M < 1:
 		print("Warning, no EM-PCA iterations are performed!")
 		print("Inferring set of eigenvector(s).")
-		U, s, V = customFinalSVD(D, f, e, None, None, None, Bi, n, m, svd_power, t)
+		U, s, V = customFinalSVD(D, f, K, None, None, None, Bi, n, m, svd_power, t)
 		return U, s, V
 	else:
 		# Estimate initial individual allele frequencies
@@ -390,7 +336,7 @@ def emuMemory(D, f, e, K, M, M_tole, Bi, n, m, svd_power, \
 			W = W*s.reshape((e, 1))
 
 		# Iterative estimation of individual allele frequencies
-		for iteration in range(2, M+1):
+		for i in range(M):
 			prevU = np.copy(U)
 			if accel:
 				U1, s1, W1 = customDomainSVD_accel(D, f, e, U, W, Bi, n, m, svd_power, t)
@@ -420,7 +366,7 @@ def emuMemory(D, f, e, K, M, M_tole, Bi, n, m, svd_power, \
 
 			# Break iterative update if converged
 			diff = np.sqrt(np.sum(shared_cy.rmse(U, prevU))/(m*e))
-			print("Individual allele frequencies estimated (" + str(iteration) + "). RMSE=" + str(diff))
+			print("Individual allele frequencies estimated (" + str(i+2) + "). RMSE=" + str(diff))
 			if diff < M_tole:
 				print("Estimation of individual allele frequencies has converged.")
 				break

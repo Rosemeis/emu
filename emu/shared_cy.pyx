@@ -14,7 +14,7 @@ cpdef estimateF(unsigned char[:,::1] D, float[::1] f, int[::1] c, int Bi, \
 	cdef unsigned char byte, code
 	cdef int i, j, b, bytepart
 	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
+		for j in prange(m, num_threads=t):
 			i = 0
 			for b in range(Bi):
 				byte = D[j,b]
@@ -59,7 +59,7 @@ cpdef updateE_init(unsigned char[:,::1] D, float[::1] f, float[:,::1] E, \
 	cdef unsigned char byte, code
 	cdef int i, j, b, bytepart
 	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
+		for j in prange(m, num_threads=t):
 			i = 0
 			for b in range(Bi):
 				byte = D[j,b]
@@ -86,7 +86,7 @@ cpdef updateE_SVD(unsigned char[:,::1] D, float[:,::1] E, float[::1] f, \
 	cdef unsigned char byte, code
 	cdef int i, j, k, b, bytepart
 	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
+		for j in prange(m, num_threads=t):
 			i = 0
 			for b in range(Bi):
 				byte = D[j,b]
@@ -113,7 +113,7 @@ cpdef updateE_SVD_accel(unsigned char[:,::1] D, float[:,::1] E, float[::1] f, \
 	cdef unsigned char byte, code
 	cdef int i, j, k, b, bytepart
 	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
+		for j in prange(m, num_threads=t):
 			i = 0
 			for b in range(Bi):
 				byte = D[j,b]
@@ -135,7 +135,7 @@ cpdef standardizeMatrix(float[:,::1] E, float[::1] f, int t):
 	cdef int n = E.shape[1]
 	cdef int i, j
 	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
+		for j in prange(m, num_threads=t):
 			for i in range(n):
 				E[j,i] /= sqrt(f[j]*(1-f[j]))
 
@@ -202,7 +202,7 @@ cpdef frobenius(unsigned char[:,::1] D, float[::1] f, float[:,:] U, float[:] s,\
 	cdef int i, j, k, b, bytepart
 	cdef float e
 	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
+		for j in prange(m, num_threads=t):
 			sumVec[j] = 0.0
 			i = 0
 			for b in range(Bi):
@@ -236,7 +236,7 @@ cpdef frobenius_accel(unsigned char[:,::1] D, float[::1] f, float[:,:] U, \
 	cdef int i, j, k, b, bytepart
 	cdef float e
 	with nogil:
-		for j in prange(m, num_threads=t, schedule='static'):
+		for j in prange(m, num_threads=t):
 			sumVec[j] = 0.0
 			i = 0
 			for b in range(Bi):

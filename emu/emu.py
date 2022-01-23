@@ -158,7 +158,7 @@ def main():
 		print("\nPerforming EMU-mem using " + str(args.n_eig) + " eigenvector(s).")
 		U, s, V = shared.emuMemory(D, f, args.n_eig, K, args.iter, args.tole, \
 									Bi, n, m, args.svd_power, args.out, accel, \
-									args.threads)
+									args.seed, args.threads)
 	else:
 		print("\nPerforming EMU using " + str(args.n_eig) + " eigenvector(s).")
 		U, s, V = shared.emuAlgorithm(D, f, args.n_eig, K, args.iter, args.tole, \
