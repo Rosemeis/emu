@@ -21,7 +21,7 @@ def extract_length(filename):
 	return int(result.split()[0])
 
 # Argparse
-parser = argparse.ArgumentParser(prog="EMU")
+parser = argparse.ArgumentParser(prog="emu")
 parser.add_argument("--version", action="version", version="%(prog)s alpha 0.9")
 parser.add_argument("-m", "--mem", action="store_true",
 	help="EMU-mem variant")
