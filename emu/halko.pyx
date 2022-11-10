@@ -2,12 +2,7 @@
 import numpy as np
 cimport numpy as np
 from cython.parallel import prange
-from cython import boundscheck, wraparound
 from libc.math cimport sqrt
-
-# Typedef
-DTYPE = np.int32
-ctypedef np.int32_t DTYPE_t
 
 ##### EMU-mem #####
 ### 2-bit functions only ###
