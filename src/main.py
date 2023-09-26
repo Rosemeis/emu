@@ -57,7 +57,12 @@ def main():
 	if len(sys.argv) < 2:
 		parser.print_help()
 		sys.exit()
-	print("EMU v1.0\n")
+	print("--------------------------------")
+	print("EMU v1.0")
+	print(f"Using {args.threads} thread(s).")
+	print("--------------------------------\n")
+
+	# Check input
 	assert args.bfile is not None, "No input data (--bfile)"
 	assert args.n_eig is not None, "Must specify number of eigenvectors to use!"
 	start = time()
@@ -100,6 +105,9 @@ def main():
 
 	# Read data
 	print("Reading in data matrix from PLINK files.")
+	assert os.path.isfile(f"{args.bfile}.bed"), "bed file doesn't exist!"
+	assert os.path.isfile(f"{args.bfile}.bim"), "bim file doesn't exist!"
+	assert os.path.isfile(f"{args.bfile}.fam"), "fam file doesn't exist!"
 	N = shared.extract_length(f"{args.bfile}.fam")
 	M = shared.extract_length(f"{args.bfile}.bim")
 	with open(f"{args.bfile}.bed", "rb") as bed:
