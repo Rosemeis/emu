@@ -19,7 +19,7 @@ conda env create -f environment.yml
 ```bash
 git clone https://github.com/Rosemeis/emu.git
 cd emu
-pip3 install -e .
+pip3 install .
 ```
 
 You can now run EMU with the `emu` command.
