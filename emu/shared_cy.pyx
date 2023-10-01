@@ -183,15 +183,15 @@ cpdef float matSumSquare(float[:,::1] A) nogil:
 	return res
 
 # Update factor matrices
-cpdef void matUpdate(float[:,::1] A, float[:,::1] D1, float[:,::1] D3, \
-		float alpha) nogil:
+cpdef void matUpdate(float[:,::1] A, float[:,::1] A0, float[:,::1] D1, \
+		float[:,::1] D3, float alpha) nogil:
 	cdef:
 		int M = A.shape[0]
 		int N = A.shape[1]
 		int i, j
 	for j in range(M):
 		for i in range(N):
-			A[j,i] = A[j,i] + 2*alpha*D1[j,i] + alpha*alpha*D3[j,i]
+			A[j,i] = A0[j,i] - 2.0*alpha*D1[j,i] + alpha*alpha*D3[j,i]
 
 ### Likelihood measures for debugging
 cpdef void frobenius(unsigned char[:,::1] D, float[::1] f, float[:,::1] U, \

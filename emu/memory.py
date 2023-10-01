@@ -10,8 +10,8 @@ __author__ = "Jonas Meisner"
 # Libraries
 import numpy as np
 from math import sqrt
-from src import shared
-from src import shared_cy
+from emu import shared
+from emu import shared_cy
 
 ##### EMU-mem #####
 def emuMemory(D, f, e, K, N, e_iter, e_tole, power, cost, batch, seed, threads):
@@ -19,12 +19,12 @@ def emuMemory(D, f, e, K, N, e_iter, e_tole, power, cost, batch, seed, threads):
 
 	# Setup acceleration
 	print("Using accelerated EM scheme (SqS3).")
-	DU1 = np.zeros((M, e), dtype=np.float32)
-	DU2 = np.zeros((M, e), dtype=np.float32)
-	DU3 = np.zeros((M, e), dtype=np.float32)
-	DV1 = np.zeros((N, e), dtype=np.float32)
-	DV2 = np.zeros((N, e), dtype=np.float32)
-	DV3 = np.zeros((N, e), dtype=np.float32)
+	dU1 = np.zeros((M, e), dtype=np.float32)
+	dU2 = np.zeros((M, e), dtype=np.float32)
+	dU3 = np.zeros((M, e), dtype=np.float32)
+	dV1 = np.zeros((N, e), dtype=np.float32)
+	dV2 = np.zeros((N, e), dtype=np.float32)
+	dV3 = np.zeros((N, e), dtype=np.float32)
 
 	# Exit without performing EMU
 	if e_iter < 1:
@@ -40,6 +40,8 @@ def emuMemory(D, f, e, K, N, e_iter, e_tole, power, cost, batch, seed, threads):
 			seed, False, threads)
 		U, V = shared.signFlip(U, V)
 		V = V*S
+		U0 = np.zeros_like(U)
+		V0 = np.zeros_like(V)
 		seed += 1
 		
 		# Estimate cost
@@ -50,7 +52,8 @@ def emuMemory(D, f, e, K, N, e_iter, e_tole, power, cost, batch, seed, threads):
 
 		# Iterative estimation of individual allele frequencies
 		for i in range(1, e_iter+1):
-			U0 = np.copy(U)
+			np.copyto(U0, U, casting="no")
+			np.copyto(V0, V, casting="no")
 
 			# 1st SVD step
 			U1, S1, V1 = shared.halkoBatch(D, f, e, N, U, None, V, power, batch, \
@@ -58,10 +61,10 @@ def emuMemory(D, f, e, K, N, e_iter, e_tole, power, cost, batch, seed, threads):
 			U1, V1 = shared.signFlip(U1, V1)
 			V1 = V1*S1
 			seed += 1
-			shared_cy.matMinus(U1, U, DU1)
-			shared_cy.matMinus(V1, V, DV1)
-			sr2_U = shared_cy.matSumSquare(DU1)
-			sr2_V = shared_cy.matSumSquare(DV1)
+			shared_cy.matMinus(U1, U, dU1)
+			shared_cy.matMinus(V1, V, dV1)
+			sr2_U = shared_cy.matSumSquare(dU1)
+			sr2_V = shared_cy.matSumSquare(dV1)
 
 			# 2nd SVD step
 			U2, S2, V2 = shared.halkoBatch(D, f, e, N, U1, None, V1, power, batch, \
@@ -69,25 +72,25 @@ def emuMemory(D, f, e, K, N, e_iter, e_tole, power, cost, batch, seed, threads):
 			U2, V2 = shared.signFlip(U2, V2)
 			V2 = V2*S2
 			seed += 1
-			shared_cy.matMinus(U2, U1, DU2)
-			shared_cy.matMinus(V2, V1, DV2)
+			shared_cy.matMinus(U2, U1, dU2)
+			shared_cy.matMinus(V2, V1, dV2)
 
 			# SQUAREM update of V and U SqS3
-			shared_cy.matMinus(DU2, DU1, DU3)
-			shared_cy.matMinus(DV2, DV1, DV3)
-			sv2_U = shared_cy.matSumSquare(DU3)
-			sv2_V = shared_cy.matSumSquare(DV3)
+			shared_cy.matMinus(dU2, dU1, dU3)
+			shared_cy.matMinus(dV2, dV1, dV3)
+			sv2_U = shared_cy.matSumSquare(dU3)
+			sv2_V = shared_cy.matSumSquare(dV3)
 			if i == 1:
 				if np.isclose(sv2_U, 0.0):
 					print("No missingness in data. Skipping iterative approach!")
 					converged = False
 					break
-			aU = max(1.0, sqrt(sr2_U/sv2_U))
-			aV = max(1.0, sqrt(sr2_V/sv2_V))
+			aU = -max(1.0, sqrt(sr2_U/sv2_U))
+			aV = -max(1.0, sqrt(sr2_V/sv2_V))
 
 			# New accelerated update
-			shared_cy.matUpdate(U, DU1, DU3, aU)
-			shared_cy.matUpdate(V, DV1, DV3, aV)
+			shared_cy.matUpdate(U, U0, dU1, dU3, aU)
+			shared_cy.matUpdate(V, V0, dV1, dV3, aV)
 
 			# Check optional cost function
 			if cost:
@@ -104,7 +107,7 @@ def emuMemory(D, f, e, K, N, e_iter, e_tole, power, cost, batch, seed, threads):
 			if i == e_iter:
 				print("EM-PCA did not converged!")
 				converged = False
-		del U0, U1, U2, S1, S2, V1, V2, DU1, DU2, DU3, DV1, DV2, DV3
+		del U0, U1, U2, V0, V1, V2, S1, S2, dU1, dU2, dU3, dV1, dV2, dV3
 
 		# Stabilization step
 		U, S, V = shared.halkoBatch(D, f, e, N, U, None, V, power, batch, seed, \

@@ -92,10 +92,10 @@ def main():
 	# Load numerical libraries
 	import numpy as np
 	from math import ceil
-	from src import algorithm
-	from src import memory
-	from src import shared
-	from src import shared_cy
+	from emu import algorithm
+	from emu import memory
+	from emu import shared
+	from emu import shared_cy
 
 	# Set K
 	if args.n_out is None:

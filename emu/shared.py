@@ -11,7 +11,7 @@ __author__ = "Jonas Meisner"
 import subprocess
 import numpy as np
 from math import ceil
-from src import memory_cy
+from emu import memory_cy
 
 ##### Shared functions #####
 ### Helper functions
@@ -54,7 +54,7 @@ def halko(E, K, power, seed):
 
 # PCAone Halko acceleration
 def halkoBatch(D, f, K, N, U0, S0, V0, power, batch, seed, final, threads):
-	M, B = D.shape
+	M = D.shape[0]
 	W = ceil(M/batch)
 	L = K + 16
 	rng = np.random.default_rng(seed)
