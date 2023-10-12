@@ -23,7 +23,7 @@ extensions = [
 
 setup(
 	name="emu",
-	version="1.0",
+	version="1.01",
 	description="EM-PCA for performing PCA in the presence of missingness",
 	author="Jonas Meisner",
 	packages=["emu"],
