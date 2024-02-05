@@ -113,7 +113,7 @@ def emuAlgorithm(D, f, e, K, N, e_iter, e_tole, power, cost, seed, threads):
 				converged = True
 				break
 			if i == e_iter:
-				print("EM-PCA did not converged!")
+				print("EM-PCA did not converge!")
 				converged = False
 		del U0, U1, U2, V0, V1, V2, S1, S2, dU1, dU2, dU3, dV1, dV2, dV3
 
