@@ -1,4 +1,5 @@
 # EMU
+
 [![](https://anaconda.org/bioconda/emu-pca/badges/downloads.svg)](https://anaconda.org/bioconda/emu-pca)
 
 EMU is a software for performing principal component analysis (PCA) in the presence of missingness for genetic datasets. EMU can handle both random and non-random missingness by modelling it directly through a truncated SVD approach. EMU uses binary PLINK files as input.
