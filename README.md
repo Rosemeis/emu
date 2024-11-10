@@ -16,7 +16,7 @@ pip install .
 
 # Download source and install in new Conda environment
 git clone https://github.com/Rosemeis/emu.git
-conda env create -f environment.yml
+conda env create -f emu/environment.yml
 conda activate emu
 
 # You can now run the program with the `emu` command
