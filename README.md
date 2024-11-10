@@ -36,6 +36,6 @@ emu --bfile test --eig 2 --threads 64 --out test.emu
 ### Memory efficient implementation
 A more memory efficient implementation has been added. It is based of the randomized SVD algorithm using custom matrix multiplications that can handle decomposed matrices. Only factor matrices as well as the 2-bit genotype matrix is kept in memory.
 ```bash
-# Example run using '-m' argument
+# Example run using '--mem' argument
 emu --mem --bfile test -eig 2 -threads 64 -out test.emu.mem
 ```
