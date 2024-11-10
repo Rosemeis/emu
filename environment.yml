@@ -3,5 +3,6 @@ dependencies:
   - python>=3.10
   - cython>3.0.0
   - numpy>2.0.0
+  - pip
   - pip:
     - emu-popgen
