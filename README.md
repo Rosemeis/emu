@@ -4,40 +4,38 @@ EMU is a software for performing principal component analysis (PCA) in the prese
 ### Citation
 Please cite our paper in *Bioinformatics*: https://doi.org/10.1093/bioinformatics/btab027
 
-### Dependencies
-The EMU software relies on the following two Python packages that you can install through conda (recommended) or pip:
-
-- numpy
-- cython
-
-You can create an environment through conda easily as follows:
+## Installation
 ```bash
-conda env create -f environment.yml
-```
+# Build and install via PyPI
+pip install emu-popgen
 
-## Install and build
-```bash
+# Download source and install via pip
 git clone https://github.com/Rosemeis/emu.git
 cd emu
-pip3 install .
+pip install .
+
+# Download source and install in new Conda environment
+git clone https://github.com/Rosemeis/emu.git
+conda env create -f environment.yml
+conda activate emu
+
+# You can now run the program with the `emu` command
 ```
 
-You can now run EMU with the `emu` command.
-
-## Usage
+## Quick usage
 ### Running EMU
-EMU works directly on PLINK files.
+Provide `emu` with the file prefix of the PLINK files.
 ```bash
-# See all options
+# Check help message of the program
 emu -h
 
-# Using PLINK files directly (test.bed, test.bim, test.fam) - Give prefix
-emu --bfile test --n_eig 2 --threads 64 --out test.emu
+# Model and extract 2 eigenvectors using the EM-PCA algorithm
+emu --bfile test --eig 2 --threads 64 --out test.emu
 ```
 
 ### Memory efficient implementation
-A more memory efficient implementation has been added. It is based of the randomized SVD algorithm ([Halko et al.](https://arxiv.org/abs/0909.4061)) but using custom matrix multiplications that can handle decomposed matrices. Only factor matrices as well as the 2-bit data matrix is kept in memory.
+A more memory efficient implementation has been added. It is based of the randomized SVD algorithm using custom matrix multiplications that can handle decomposed matrices. Only factor matrices as well as the 2-bit genotype matrix is kept in memory.
 ```bash
 # Example run using '-m' argument
-emu --mem --bfile test -e 2 -t 64 -o test.emu.mem
+emu --mem --bfile test -eig 2 -threads 64 -out test.emu.mem
 ```

@@ -4,17 +4,17 @@ import numpy
 
 extensions = [
 	Extension(
-		"emu.shared_cy",
-		["emu/shared_cy.pyx"],
-		extra_compile_args=['-fopenmp', '-g0', '-Wno-unreachable-code'],
+		name="emu.shared",
+		sources=["emu/shared.pyx"],
+		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
 		extra_link_args=['-fopenmp'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
 	), 
 	Extension(
-		"emu.memory_cy",
-		["emu/memory_cy.pyx"],
-		extra_compile_args=['-fopenmp', '-g0', '-Wno-unreachable-code'],
+		name="emu.memory",
+		sources=["emu/memory.pyx"],
+		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
 		extra_link_args=['-fopenmp'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
@@ -22,19 +22,28 @@ extensions = [
 ]
 
 setup(
-	name="emu",
-	version="1.01",
-	description="EM-PCA for performing PCA in the presence of missingness",
+	name="emu-popgen",
+	version="1.1",
 	author="Jonas Meisner",
+	author_email="meisnerucph@gmail.com",
+	description="EM-PCA for inferring population structure in the presence of missingness",
+	long_description_content_type="text/markdown",
+	long_description=open("README.md").read(),
+	url="https://github.com/Rosemeis/emu",
+	classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+        "Operating System :: OS Independent",
+        "Development Status :: 4 - Beta",
+    ],
+	ext_modules=cythonize(extensions),
+	python_requires=">=3.10",
+	install_requires=[
+		"cython>3.0.0",
+		"numpy>2.0.0"
+	],
 	packages=["emu"],
 	entry_points={
 		"console_scripts": ["emu=emu.main:main"]
 	},
-	python_requires=">=3.6",
-	install_requires=[
-		"cython",
-		"numpy"
-	],
-	ext_modules=cythonize(extensions),
-	include_dirs=[numpy.get_include()]
 )

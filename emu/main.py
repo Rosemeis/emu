@@ -1,6 +1,6 @@
 """
 EMU.
-Main caller. Performs iterative SVD of allele count matrix (EM-PCA) based on either ARPACK, or Halko method.
+Main caller. Performs iterative SVD of allele count matrix (EM-PCA).
 
 Jonas Meisner, Siyang Liu, Mingxi Huang and Anders Albrechtsen
 """
@@ -16,13 +16,12 @@ from time import time
 
 # Argparse
 parser = argparse.ArgumentParser(prog="emu")
-parser.add_argument("--version", action="version", version="%(prog)s 1.01")
+parser.add_argument("--version", action="version", \
+	version="%(prog)s 1.1")
 parser.add_argument("-b", "--bfile", metavar="FILE-PREFIX",
 	help="Prefix for PLINK files (.bed, .bim, .fam)")
-parser.add_argument("-e", "--n_eig", metavar="INT", type=int,
+parser.add_argument("-e", "--eig", metavar="INT", type=int,
 	help="Number of eigenvectors to use in iterative estimation")
-parser.add_argument("-k", "--n_out", metavar="INT", type=int,
-	help="Number of eigenvectors to output in final SVD")
 parser.add_argument("-t", "--threads", metavar="INT", type=int, default=1,
 	help="Number of threads")
 parser.add_argument("-f", "--maf", metavar="FLOAT", type=float,
@@ -39,16 +38,19 @@ parser.add_argument("--tole", metavar="FLOAT", type=float, default=5e-7,
 	help="Tolerance in update for individual allele frequencies (5e-7)")
 parser.add_argument("--power", metavar="INT", type=int, default=11,
 	help="Number of power iterations in randomized SVD (11)")
-parser.add_argument("--batch", metavar="INT", type=int, default=4096,
-	help="Number of SNPs to use in batches of memory variant (4096)")
+parser.add_argument("--batch", metavar="INT", type=int, default=8192,
+	help="Number of SNPs to use in batches of memory variant (8192)")
+parser.add_argument("--seed", metavar="INT", type=int, default=0,
+	help="Set random seed")
+parser.add_argument("--eig-out", metavar="INT", type=int,
+	help="Number of eigenvectors to output in final SVD")
 parser.add_argument("--loadings", action="store_true",
 	help="Save SNP loadings")
-parser.add_argument("--maf_save", action="store_true",
+parser.add_argument("--maf-save", action="store_true",
 	help="Save estimated population allele frequencies")
 parser.add_argument("--cost", action="store_true",
 	help="Output min-cost each iteration (DEBUG function)")
-parser.add_argument("--seed", metavar="INT", type=int, default=0,
-	help="Set random seed")
+
 
 
 ##### EMU main caller #####
@@ -58,20 +60,28 @@ def main():
 		parser.print_help()
 		sys.exit()
 	print("--------------------------------")
-	print("EMU v1.01")
+	print("EMU v1.1")
 	print(f"Using {args.threads} thread(s).")
 	print("--------------------------------\n")
 
 	# Check input
 	assert args.bfile is not None, "No input data (--bfile)"
-	assert args.n_eig is not None, "Must specify number of eigenvectors to use!"
+	assert args.eig is not None, "Must specify number of eigenvectors to use!"
+	assert args.threads > 0, "Please select a valid number of threads!"
+	assert args.seed >= 0, "Please select a valid seed!"
+	assert args.iter >= 0, "Please select a valid number of iterations!"
+	assert args.tole >= 0.0, "Please select a valid tolerance!"
+	assert args.power > 1, "Please select a valid number of power iterations!"
+	assert args.batch > 1, "Please select a valid number of batches!"
+	if args.eig_out is not None:
+		assert args.eig_out > 1, "Please select a valid number of output eigenvectors!"
 	start = time()
 
 	# Create log-file of arguments
 	full = vars(parser.parse_args())
 	deaf = vars(parser.parse_args([]))
 	with open(f"{args.out}.log", "w") as log:
-		log.write("EMU v1.01\n")
+		log.write("EMU v1.1\n")
 		log.write(f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
 		log.write(f"Directory: {os.getcwd()}\n")
 		log.write("Options:\n")
@@ -85,81 +95,68 @@ def main():
 
 	# Control threads of external numerical libraries
 	os.environ["MKL_NUM_THREADS"] = str(args.threads)
+	os.environ["MKL_MAX_THREADS"] = str(args.threads)
 	os.environ["OMP_NUM_THREADS"] = str(args.threads)
+	os.environ["OMP_MAX_THREADS"] = str(args.threads)
 	os.environ["NUMEXPR_NUM_THREADS"] = str(args.threads)
+	os.environ["NUMEXPR_MAX_THREADS"] = str(args.threads)
 	os.environ["OPENBLAS_NUM_THREADS"] = str(args.threads)
+	os.environ["OPENBLAS_MAX_THREADS"] = str(args.threads)
 
 	# Load numerical libraries
 	import numpy as np
-	from math import ceil
 	from emu import algorithm
-	from emu import memory
+	from emu import functions
 	from emu import shared
-	from emu import shared_cy
 
 	# Set K
-	if args.n_out is None:
-		K = args.n_eig
+	if args.eig_out is None:
+		K = args.eig
 	else:
-		K = args.n_out
+		K = args.eig_out
 
-	# Read data
-	print("Reading in data matrix from PLINK files.")
+	### Read data
 	assert os.path.isfile(f"{args.bfile}.bed"), "bed file doesn't exist!"
 	assert os.path.isfile(f"{args.bfile}.bim"), "bim file doesn't exist!"
 	assert os.path.isfile(f"{args.bfile}.fam"), "fam file doesn't exist!"
-	N = shared.extract_length(f"{args.bfile}.fam")
-	M = shared.extract_length(f"{args.bfile}.bim")
-	with open(f"{args.bfile}.bed", "rb") as bed:
-		D = np.fromfile(bed, dtype=np.uint8, offset=3)
-	B = ceil(N/4) # Length of bytes to describe n individuals
-	D.shape = (M, B)
-	print(f"Loaded {N} samples and {M} SNPs.", flush=True)
+	print("Reading data...", end="", flush=True)
+	G, M, N = functions.readPlink(args.bfile)
+	print(f"\rLoaded {N} samples and {M} SNPs.")
 
-	# Population allele frequencies
+	# Population allele frequencies and check input
 	print("Estimating population allele frequencies.")
 	f = np.zeros(M, dtype=np.float32)
-	shared_cy.estimateF(D, f, N, args.threads)
-
-	# Removing rare variants
-	if args.maf is not None:
-		assert (args.maf > 0.0) and (args.maf < 1.0), "Please provide a valid MAF!"
-		mask = (f >= args.maf) & (f <= (1.0 - args.maf))
-
-		# Filter and update arrays without copying
-		M = np.sum(mask)
-		tmpMask = mask.astype(np.uint8)
-		shared_cy.filterArrays(D, f, tmpMask)
-		D = D[:M,:]
-		f = f[:M]
-		del tmpMask
-		print(f"Number of sites after MAF filtering ({args.maf}): {M}")
-		M = D.shape[0]
+	n = np.zeros(M, dtype=np.int32)
+	shared.estimateF(G, f, n, N, args.threads)
+	if np.allclose(n, np.full(M, N, dtype=np.int32)):
+		print("No missingness in data!")
+		args.iter = 0
 	assert (not np.allclose(np.max(f), 1.0)) or (not np.allclose(np.min(f), 0.0)), \
-		"Fixed sites in dataset. Must perform MAF filtering (-f / --maf)!"
+		"Fixed sites in dataset. Please perform MAF filtering!"
+	del n
 
-	##### EMU #####
+	### Perform EM-PCA
 	if args.mem:
-		print(f"\nPerforming EMU-mem using {args.n_eig} eigenvector(s).")
-		U, S, V, it, converged = memory.emuMemory(D, f, args.n_eig, K, N, args.iter, \
+		print(f"\nPerforming EMU-mem using {args.eig} eigenvector(s).")
+		U, S, V, it, converged = algorithm.emuMem(G, f, args.eig, K, N, args.iter, \
 			args.tole, args.power, args.cost, args.batch, args.seed, args.threads)
 	else:
-		print(f"\nPerforming EMU using {args.n_eig} eigenvector(s).")
-		U, S, V, it, converged = algorithm.emuAlgorithm(D, f, args.n_eig, K, N, \
+		print(f"\nPerforming EMU using {args.eig} eigenvector(s).")
+		U, S, V, it, converged = algorithm.emuAlg(G, f, args.eig, K, N, \
 			args.iter, args.tole, args.power, args.cost, args.seed, args.threads)
-	del D
+	del G
 
 	# Print elapsed time for estimation
 	t_tot = time()-start
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
-	print(f"Total elapsed time: {t_min}m{t_sec}s")
+	print(f"\nTotal elapsed time: {t_min}m{t_sec}s")
 
 	# Save matrices
-	np.savetxt(f"{args.out}.eigenvecs", V, fmt="%.7f")
-	print(f"Saved eigenvector(s) as {args.out}.eigenvecs")
-	np.savetxt(f"{args.out}.eigenvals", (S**2)/float(M), fmt="%.7f")
-	print(f"Saved eigenvalue(s) as {args.out}.eigenvals")
+	np.savetxt(f"{args.out}.eigvecs", V, fmt="%.7f")
+	print(f"Saved eigenvector(s) as {args.out}.eigvecs")
+	np.savetxt(f"{args.out}.eigvals", (S**2)/float(M), fmt="%.7f")
+	print(f"Saved eigenvalue(s) as {args.out}.eigvals")
 	del V, S
 
 	# Save loadings
@@ -170,7 +167,7 @@ def main():
 	# Perform genome-wide selection scan
 	if args.selection:
 		Dsquared = np.zeros((M, K), dtype=np.float32)
-		shared_cy.galinskyScan(U, Dsquared)
+		shared.galinskyScan(U, Dsquared)
 		np.savetxt(f"{args.out}.selection", Dsquared, fmt="%.7f")
 		print(f"Saved test statistics as {args.out}.selection")
 		del Dsquared
@@ -184,13 +181,14 @@ def main():
 
 	# Write output info to log-file
 	with open(f"{args.out}.log", "a") as log:
-		if converged:
-			log.write(f"\nEM-PCA converged in {it} iterations.\n")
-		else:
-			log.write("\nEM-PCA did not converge!\n")
+		if args.iter > 0:
+			if converged:
+				log.write(f"\nEM-PCA converged in {it} iterations.\n")
+			else:
+				log.write("\nEM-PCA did not converge!\n")
 		log.write(f"Total elapsed time: {t_min}m{t_sec}s\n")
-		log.write(f"Saved eigenvector(s) as {args.out}.eigenvecs\n")
-		log.write(f"Saved eigenvalue(s) as {args.out}.eigenvals\n")
+		log.write(f"Saved eigenvector(s) as {args.out}.eigvecs\n")
+		log.write(f"Saved eigenvalue(s) as {args.out}.eigvals\n")
 		if args.loadings:
 			log.write(f"Saved SNP loadings as {args.out}.loadings\n")
 		if args.selection:

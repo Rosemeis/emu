@@ -1,6 +1,6 @@
 """
 EMU.
-Iterative SVD algorithms.
+Iterative SVD algorithms for genetic data with missingness.
 
 Jonas Meisner, Siyang Liu, Mingxi Huang and Anders Albrechtsen
 """
@@ -10,123 +10,196 @@ __author__ = "Jonas Meisner"
 # Libraries
 import numpy as np
 from math import sqrt
+from emu import functions
 from emu import shared
-from emu import shared_cy
 
 ##### EMU #####
-def emuAlgorithm(D, f, e, K, N, e_iter, e_tole, power, cost, seed, threads):
-	M, B = D.shape
+# Standard variant of EMU
+def emuAlg(G, f, e, K, N, iter, tole, power, cost, seed, threads):
+	M = G.shape[0]
 	E = np.zeros((M, N), dtype=np.float32)
+	d = 1.0/np.sqrt(2.0*f*(1-f))
 
 	# Setup acceleration
-	print("Using accelerated EM scheme (SqS3).")
-	dU1 = np.zeros((M, e), dtype=np.float32)
-	dU2 = np.zeros((M, e), dtype=np.float32)
-	dU3 = np.zeros((M, e), dtype=np.float32)
-	dV1 = np.zeros((N, e), dtype=np.float32)
-	dV2 = np.zeros((N, e), dtype=np.float32)
-	dV3 = np.zeros((N, e), dtype=np.float32)
+	print("Using accelerated EM scheme (QN).")
+	U1 = np.zeros((M, e), dtype=np.float32)
+	U2 = np.zeros((M, e), dtype=np.float32)
+	V1 = np.zeros((N, e), dtype=np.float32)
+	V2 = np.zeros((N, e), dtype=np.float32)
 
 	# Initiate E matrix
-	shared_cy.updateInit(D, f, E, threads)
+	shared.updateInit(G, f, E, threads)
 
 	# Exit without performing EMU
-	if e_iter < 1:
+	if iter < 1:
 		print("Warning, no EM-PCA iterations are performed!")
 		print("Inferring eigenvector(s).")
-		shared_cy.standardizeMatrix(E, f, threads)
-		U, S, V = shared.halko(E, K, power, seed)
-		U, V = shared.signFlip(U, V)
-		del E
+		shared.standardizeMatrix(E, d, threads)
+		U, S, V = functions.halko(E, K, power, seed)
+		U, V = functions.signFlip(U, V)
+		del E, d
 		return U, S, V, 0, False
 	else:
 		# Estimate initial individual allele frequencies
 		print("Initiating accelerated EM scheme (1)")
-		U, S, V = shared.halko(E, e, power, seed)
-		U, V = shared.signFlip(U, V)
-		V = V*S
-		U0 = np.zeros_like(U)
-		V0 = np.zeros_like(V)
-		seed += 1
+		U, S, V = functions.halko(E, e, power, seed)
+		U, V = functions.signFlip(U, V)
+		V *= S
+		U_old = np.zeros_like(U)
+		V_old = np.zeros_like(V)
 
 		# Estimate cost
 		if cost:
 			sumV = np.zeros(M, dtype=np.float32)
-			shared_cy.frobenius(D, f, U, V, sumV, threads)
+			shared.frobenius(G, f, U, V, sumV, threads)
 			print(f"Frobenius: {np.round(np.sum(sumV, dtype=float),1)}")
 
 		# Update E matrix
-		shared_cy.updateAccel(D, E, f, U, V, threads)
+		shared.updateAccel(G, E, f, U, V, threads)
 
 		# Iterative estimation of individual allele frequencies
-		for i in range(1, e_iter+1):
-			np.copyto(U0, U, casting="no")
-			np.copyto(V0, V, casting="no")
+		for it in range(1, iter+1):
+			memoryview(U_old.ravel())[:] = memoryview(U.ravel())
+			memoryview(V_old.ravel())[:] = memoryview(V.ravel())
 
 			# 1st SVD step
-			U1, S1, V1 = shared.halko(E, e, power, seed)
-			U1, V1 = shared.signFlip(U1, V1)
-			V1 = V1*S1
 			seed += 1
-			shared_cy.matMinus(U1, U, dU1)
-			shared_cy.matMinus(V1, V, dV1)
-			sr2_U = shared_cy.matSumSquare(dU1)
-			sr2_V = shared_cy.matSumSquare(dV1)
-			shared_cy.updateAccel(D, E, f, U1, V1, threads)
+			U1, S1, V1 = functions.halko(E, e, power, seed)
+			U1, V1 = functions.signFlip(U1, V1)
+			V1 *= S1
+			shared.updateAccel(G, E, f, U1, V1, threads)
 
 			# 2nd SVD step
-			U2, S2, V2 = shared.halko(E, e, power, seed)
-			U2, V2 = shared.signFlip(U2, V2)
-			V2 = V2*S2
 			seed += 1
-			shared_cy.matMinus(U2, U1, dU2)
-			shared_cy.matMinus(V2, V1, dV2)
+			U2, S2, V2 = functions.halko(E, e, power, seed)
+			U2, V2 = functions.signFlip(U2, V2)
+			V2 *= S2
 
-			# SQUAREM update of U and V SqS3
-			shared_cy.matMinus(dU2, dU1, dU3)
-			shared_cy.matMinus(dV2, dV1, dV3)
-			sv2_U = shared_cy.matSumSquare(dU3)
-			sv2_V = shared_cy.matSumSquare(dV3)
-			if i == 1:
-				if np.isclose(sv2_U, 0.0):
-					print("No missingness in data. Skipping iterative approach!")
-					converged = False
-					break
-			aU = -max(1.0, sqrt(sr2_U/sv2_U))
-			aV = -max(1.0, sqrt(sr2_V/sv2_V))
-
-			# Accelerated update
-			shared_cy.matUpdate(U, U0, dU1, dU3, aU)
-			shared_cy.matUpdate(V, V0, dV1, dV3, aV)
-			shared_cy.updateAccel(D, E, f, U, V, threads)
+			# QN steps
+			shared.alphaStep(U, U1, U2)
+			shared.alphaStep(V, V1, V2)
+			shared.updateAccel(G, E, f, U, V, threads)
 
 			# Check optional cost function
 			if cost:
-				shared_cy.frobenius(D, f, U, V, sumV, threads)
+				shared.frobenius(G, f, U, V, sumV, threads)
 				print(f"Frobenius: {np.round(np.sum(sumV, dtype=float),1)}")
 
 			# Break iterative update if converged
-			rmseU = shared_cy.rmse(U, U0)
-			print(f"Iteration {i},\tRMSE={round(rmseU, 9)}")
-			if rmseU < e_tole:
+			rmseU = shared.rmse(U, U_old)
+			print(f"Iteration {it},\tRMSE={round(rmseU, 9)}")
+			if rmseU < tole:
 				print("EM-PCA has converged.")
 				converged = True
 				break
-			if i == e_iter:
+			if it == iter:
 				print("EM-PCA did not converge!")
 				converged = False
-		del U0, U1, U2, V0, V1, V2, S1, S2, dU1, dU2, dU3, dV1, dV2, dV3
+		del U1, U2, U_old, V1, V2, V_old, S1, S2
 
 		# Stabilization step
-		U, S, V = shared.halko(E, e, power, seed)
-		U, V = shared.signFlip(U, V)
 		seed += 1
-		shared_cy.updateSVD(D, E, f, U, S, V, threads)
+		U, S, V = functions.halko(E, e, power, seed)
+		U, V = functions.signFlip(U, V)
+		shared.updateSVD(G, E, f, U, S, V, threads)
 
 		# Estimating SVD
-		shared_cy.standardizeMatrix(E, f, threads)
+		shared.standardizeMatrix(E, d, threads)
 		print(f"Inferring {K} eigenvector(s).")
-		U, S, V = shared.halko(E, K, power, seed)
-		U, V = shared.signFlip(U, V)
-		del E
-		return U, S, V, i, converged
+		seed += 1
+		U, S, V = functions.halko(E, K, power, seed)
+		U, V = functions.signFlip(U, V)
+		del E, d
+		return U, S, V, it, converged
+
+
+# Memory-efficient variant
+def emuMem(G, f, e, K, N, iter, tole, power, cost, batch, seed, threads):
+	M = G.shape[0]
+	d = 1.0/np.sqrt(2.0*f*(1-f))
+
+	# Setup acceleration
+	print("Using accelerated EM scheme (QN).")
+	U1 = np.zeros((M, e), dtype=np.float32)
+	U2 = np.zeros((M, e), dtype=np.float32)
+	V1 = np.zeros((N, e), dtype=np.float32)
+	V2 = np.zeros((N, e), dtype=np.float32)
+
+	# Exit without performing EMU
+	if iter < 1:
+		print("Warning, no EM-PCA iterations are performed!")
+		print("Inferring set of eigenvector(s).")
+		U, S, V = functions.halkoBatchFreq(G, f, d, K, N, power, batch, \
+			seed, True, threads)
+		del d
+		return U, S, V, 0, False
+	else:
+		# Estimate initial individual allele frequencies
+		print("Initiating accelerated EM scheme (1)")
+		U, S, V = functions.halkoBatchFreq(G, f, d, e, N, power, batch, \
+			seed, False, threads)
+		U, V = functions.signFlip(U, V)
+		V *= S
+		U_old = np.zeros_like(U)
+		V_old = np.zeros_like(V)
+		
+		# Estimate cost
+		if cost:
+			sumV = np.zeros(M, dtype=np.float32)
+			shared.frobenius(G, f, U, V, sumV, threads)
+			print(f"Frobenius: {np.round(np.sum(sumV, dtype=float),1)}")
+
+		# Iterative estimation of individual allele frequencies
+		for it in range(1, iter+1):
+			memoryview(U_old.ravel())[:] = memoryview(U.ravel())
+			memoryview(V_old.ravel())[:] = memoryview(V.ravel())
+
+			# 1st SVD step
+			seed += 1
+			U1, S1, V1 = functions.halkoBatchSVD(G, f, d, e, N, U, None, V, power, \
+				batch, seed, False, threads)
+			U1, V1 = functions.signFlip(U1, V1)
+			V1 *= S1
+
+			# 2nd SVD step
+			seed += 1
+			U2, S2, V2 = functions.halkoBatchSVD(G, f, d, e, N, U1, None, V1, power, \
+				batch, seed, False, threads)
+			U2, V2 = functions.signFlip(U2, V2)
+			V2 *= S2
+
+			# QN steps
+			shared.alphaStep(U, U1, U2)
+			shared.alphaStep(V, V1, V2)
+
+			# Check optional cost function
+			if cost:
+				shared.frobenius(G, f, U, V, sumV, threads)
+				print(f"Frobenius: {np.round(np.sum(sumV, dtype=float),1)}")
+
+			# Break iterative update if converged
+			rmseU = shared.rmse(U, U_old)
+			print(f"Iteration {it},\tRMSE={round(rmseU, 9)}")
+			if rmseU < tole:
+				print("EM-PCA has converged.")
+				converged = True
+				break
+			if it == iter:
+				print("EM-PCA did not converged!")
+				converged = False
+		del U_old, U1, U2, V_old, V1, V2, S1, S2
+
+		# Stabilization step
+		seed += 1
+		U, S, V = functions.halkoBatchSVD(G, f, d, e, N, U, None, V, power, batch, \
+			seed, False, threads)
+		U, V = functions.signFlip(U, V)
+
+		# Estimating SVD
+		print(f"Inferring {K} eigenvector(s).")
+		seed += 1
+		U, S, V = functions.halkoBatchSVD(G, f, d, K, N, U, S, V, power, batch, \
+			seed, True, threads)
+		U, V = functions.signFlip(U, V)
+		del d
+		return U, S, V, it, converged
