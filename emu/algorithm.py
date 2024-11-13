@@ -9,7 +9,7 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import numpy as np
-from math import sqrt
+from time import time
 from emu import functions
 from emu import shared
 
@@ -41,7 +41,7 @@ def emuAlg(G, f, e, K, N, iter, tole, power, cost, seed, threads):
 		return U, S, V, 0, False
 	else:
 		# Estimate initial individual allele frequencies
-		print("Initiating accelerated EM scheme (1)")
+		print("(1) Initiating accelerated EM scheme")
 		U, S, V = functions.halko(E, e, power, seed)
 		U, V = functions.signFlip(U, V)
 		V *= S
@@ -58,6 +58,7 @@ def emuAlg(G, f, e, K, N, iter, tole, power, cost, seed, threads):
 		shared.updateAccel(G, E, f, U, V, threads)
 
 		# Iterative estimation of individual allele frequencies
+		ts = time()
 		for it in range(1, iter+1):
 			memoryview(U_old.ravel())[:] = memoryview(U.ravel())
 			memoryview(V_old.ravel())[:] = memoryview(V.ravel())
@@ -87,7 +88,7 @@ def emuAlg(G, f, e, K, N, iter, tole, power, cost, seed, threads):
 
 			# Break iterative update if converged
 			rmseU = shared.rmse(U, U_old)
-			print(f"Iteration {it},\tRMSE={round(rmseU, 9)}")
+			print(f"({it+1})\tRMSE={round(rmseU, 7)}\t({round(time()-ts,1)}s)")
 			if rmseU < tole:
 				print("EM-PCA has converged.")
 				converged = True
@@ -95,6 +96,7 @@ def emuAlg(G, f, e, K, N, iter, tole, power, cost, seed, threads):
 			if it == iter:
 				print("EM-PCA did not converge!")
 				converged = False
+			ts = time()
 		del U1, U2, U_old, V1, V2, V_old, S1, S2
 
 		# Stabilization step
@@ -135,7 +137,7 @@ def emuMem(G, f, e, K, N, iter, tole, power, cost, batch, seed, threads):
 		return U, S, V, 0, False
 	else:
 		# Estimate initial individual allele frequencies
-		print("Initiating accelerated EM scheme (1)")
+		print("(1) Initiating accelerated EM scheme")
 		U, S, V = functions.halkoBatchFreq(G, f, d, e, N, power, batch, \
 			seed, False, threads)
 		U, V = functions.signFlip(U, V)
@@ -150,6 +152,7 @@ def emuMem(G, f, e, K, N, iter, tole, power, cost, batch, seed, threads):
 			print(f"Frobenius: {np.round(np.sum(sumV, dtype=float),1)}")
 
 		# Iterative estimation of individual allele frequencies
+		ts = time()
 		for it in range(1, iter+1):
 			memoryview(U_old.ravel())[:] = memoryview(U.ravel())
 			memoryview(V_old.ravel())[:] = memoryview(V.ravel())
@@ -179,7 +182,7 @@ def emuMem(G, f, e, K, N, iter, tole, power, cost, batch, seed, threads):
 
 			# Break iterative update if converged
 			rmseU = shared.rmse(U, U_old)
-			print(f"Iteration {it},\tRMSE={round(rmseU, 9)}")
+			print(f"({it+1})\tRMSE={round(rmseU, 7)}\t({round(time()-ts,1)}s)")
 			if rmseU < tole:
 				print("EM-PCA has converged.")
 				converged = True
@@ -187,6 +190,7 @@ def emuMem(G, f, e, K, N, iter, tole, power, cost, batch, seed, threads):
 			if it == iter:
 				print("EM-PCA did not converged!")
 				converged = False
+			ts = time()
 		del U_old, U1, U2, V_old, V1, V2, S1, S2
 
 		# Stabilization step

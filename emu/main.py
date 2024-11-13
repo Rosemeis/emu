@@ -17,7 +17,7 @@ from time import time
 # Argparse
 parser = argparse.ArgumentParser(prog="emu")
 parser.add_argument("--version", action="version", \
-	version="%(prog)s 1.1")
+	version="%(prog)s 1.1.1")
 parser.add_argument("-b", "--bfile", metavar="FILE-PREFIX",
 	help="Prefix for PLINK files (.bed, .bim, .fam)")
 parser.add_argument("-e", "--eig", metavar="INT", type=int,
@@ -60,7 +60,7 @@ def main():
 		parser.print_help()
 		sys.exit()
 	print("--------------------------------")
-	print("EMU v1.1")
+	print("EMU v1.1.1")
 	print(f"Using {args.threads} thread(s).")
 	print("--------------------------------\n")
 
@@ -81,7 +81,7 @@ def main():
 	full = vars(parser.parse_args())
 	deaf = vars(parser.parse_args([]))
 	with open(f"{args.out}.log", "w") as log:
-		log.write("EMU v1.1\n")
+		log.write("EMU v1.1.1\n")
 		log.write(f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
 		log.write(f"Directory: {os.getcwd()}\n")
 		log.write("Options:\n")
@@ -153,10 +153,10 @@ def main():
 	print(f"\nTotal elapsed time: {t_min}m{t_sec}s")
 
 	# Save matrices
-	np.savetxt(f"{args.out}.eigvecs", V, fmt="%.7f")
-	print(f"Saved eigenvector(s) as {args.out}.eigvecs")
 	np.savetxt(f"{args.out}.eigvals", (S**2)/float(M), fmt="%.7f")
 	print(f"Saved eigenvalue(s) as {args.out}.eigvals")
+	np.savetxt(f"{args.out}.eigvecs", V, fmt="%.7f")
+	print(f"Saved eigenvector(s) as {args.out}.eigvecs")
 	del V, S
 
 	# Save loadings
@@ -187,8 +187,8 @@ def main():
 			else:
 				log.write("\nEM-PCA did not converge!\n")
 		log.write(f"Total elapsed time: {t_min}m{t_sec}s\n")
-		log.write(f"Saved eigenvector(s) as {args.out}.eigvecs\n")
 		log.write(f"Saved eigenvalue(s) as {args.out}.eigvals\n")
+		log.write(f"Saved eigenvector(s) as {args.out}.eigvecs\n")
 		if args.loadings:
 			log.write(f"Saved SNP loadings as {args.out}.loadings\n")
 		if args.selection:

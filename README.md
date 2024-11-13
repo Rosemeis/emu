@@ -6,21 +6,20 @@ Please cite our paper in *Bioinformatics*: https://doi.org/10.1093/bioinformatic
 
 ## Installation
 ```bash
-# Build and install via PyPI
+# Option 1: Build and install via PyPI
 pip install emu-popgen
 
-# Download source and install via pip
+# Option 2: Download source and install via pip
 git clone https://github.com/Rosemeis/emu.git
 cd emu
 pip install .
 
-# Download source and install in new Conda environment
+# Option 3: Download source and install in a new Conda environment
 git clone https://github.com/Rosemeis/emu.git
 conda env create -f emu/environment.yml
 conda activate emu
-
-# You can now run the program with the `emu` command
 ```
+You can now run the program with the `emu` command.
 
 ## Quick usage
 ### Running EMU

@@ -23,7 +23,7 @@ extensions = [
 
 setup(
 	name="emu-popgen",
-	version="1.1",
+	version="1.1.1",
 	author="Jonas Meisner",
 	author_email="meisnerucph@gmail.com",
 	description="EM-PCA for inferring population structure in the presence of missingness",
