@@ -1,8 +1,8 @@
-# EMU
+# EMU (v1.2.0)
 EMU is a software for performing principal component analysis (PCA) in the presence of missingness for genetic datasets. EMU can handle both random and non-random missingness by modelling it directly through a truncated SVD approach. EMU uses binary PLINK files as input.
 
 ### Citation
-Please cite our paper in *Bioinformatics*: https://doi.org/10.1093/bioinformatics/btab027
+Please cite our paper in [*Bioinformatics*](https://doi.org/10.1093/bioinformatics/btab027)
 
 ## Installation
 ```bash
@@ -32,8 +32,8 @@ emu -h
 emu --bfile test --eig 2 --threads 64 --out test.emu
 ```
 
-### Memory efficient implementation
-A more memory efficient implementation has been added. It is based of the randomized SVD algorithm using custom matrix multiplications that can handle decomposed matrices. Only factor matrices as well as the 2-bit genotype matrix is kept in memory.
+### Memory-efficient variant
+Very memory-efficient variant of `emu` for large-scale datasets.
 ```bash
 # Example run using '--mem' argument
 emu --mem --bfile test -eig 2 -threads 64 -out test.emu.mem
