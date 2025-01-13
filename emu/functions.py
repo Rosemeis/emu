@@ -35,10 +35,10 @@ def signFlip(U, V):
 
 ### Randomized SVD functions
 # SVD through eigendecomposition
-def eigSVD(C):
-	D, V = np.linalg.eigh(np.dot(C.T, C))
+def eigSVD(H):
+	D, V = np.linalg.eigh(np.dot(H.T, H))
 	S = np.sqrt(D)
-	U = np.dot(C, V*(1.0/S))
+	U = np.dot(H, V*(1.0/S))
 	return np.ascontiguousarray(U[:,::-1]), np.ascontiguousarray(S[::-1]), \
 		np.ascontiguousarray(V[:,::-1])
 
@@ -46,40 +46,37 @@ def eigSVD(C):
 def randomizedSVD(E, K, power, rng):
 	M, N = E.shape
 	a = 0.0
-	L = K + 10
-	A = np.zeros((M, L), dtype=np.float32)
+	L = max(K + 10, 20)
 	H = np.zeros((N, L), dtype=np.float32)
-	O = rng.standard_normal(size=(M, L), dtype=np.float32)
+	A = rng.standard_normal(size=(M, L), dtype=np.float32)
 
 	# Prime iteration
-	np.dot(E.T, O, out=H)
+	np.dot(E.T, A, out=H)
 	Q, _, _ = eigSVD(H)
 
 	# Power iterations
 	for _ in np.arange(power):
 		np.dot(E, Q, out=A)
 		np.dot(E.T, A, out=H)
-		Q, S, _ = eigSVD(H - a*Q)
+		H -= a*Q
+		Q, S, _ = eigSVD(H)
 		if S[-1] > a:
 			a = 0.5*(S[-1] + a)
 	
 	# Extract singular vectors
 	np.dot(E, Q, out=A)
-	U, S, V = np.linalg.svd(A, full_matrices=False)
-	U = np.ascontiguousarray(U[:,:K])
-	V = np.ascontiguousarray(np.dot(Q, V)[:,:K])
-	return U, S[:K], V
+	U, S, V = eigSVD(A)
+	return np.ascontiguousarray(U[:,:K]), S[:K], np.ascontiguousarray(np.dot(Q, V)[:,:K])
 
 # Batched randomized SVD with dynamic shift
 def memorySVD(G, U0, V0, f, d, N, K, batch, power, rng):
 	M = G.shape[0]
 	W = ceil(M/batch)
 	a = 0.0
-	L = K + 10
-	A = np.zeros((M, L), dtype=np.float32)
+	L = max(K + 10, 20)
 	H = np.zeros((N, L), dtype=np.float32)
 	X = np.zeros((batch, N), dtype=np.float32)
-	O = rng.standard_normal(size=(M, L), dtype=np.float32)
+	A = rng.standard_normal(size=(M, L), dtype=np.float32)
 
 	# Prime iteration
 	for w in np.arange(W):
@@ -96,7 +93,7 @@ def memorySVD(G, U0, V0, f, d, N, K, batch, power, rng):
 				memory.memFinal(G, X, f, d, M_w)
 			else:
 				memory.memFinalSVD(G, U0, V0, X, f, d, M_w)
-		H += np.dot(X.T, O[M_w:(M_w + X.shape[0])])
+		H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
 	Q, _, _ = eigSVD(H)
 	H.fill(0.0)
 
@@ -119,7 +116,8 @@ def memorySVD(G, U0, V0, f, d, N, K, batch, power, rng):
 					memory.memFinalSVD(G, U0, V0, X, f, d, M_w)
 			A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
 			H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
-		Q, S, _ = eigSVD(H - a*Q)
+		H -= a*Q
+		Q, S, _ = eigSVD(H)
 		H.fill(0.0)
 		if S[-1] > a:
 			a = 0.5*(S[-1] + a)
@@ -141,10 +139,10 @@ def memorySVD(G, U0, V0, f, d, N, K, batch, power, rng):
 			else:
 				memory.memFinalSVD(G, U0, V0, X, f, d, M_w)
 		A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
-	U, S, V = np.linalg.svd(A, full_matrices=False)
+	U, S, V = eigSVD(A)
 	U = np.ascontiguousarray(U[:,:K])
 	V = np.ascontiguousarray(np.dot(Q, V)[:,:K])
-	return U, S[:K], V
+	return np.ascontiguousarray(U[:,:K]), S[:K], np.ascontiguousarray(np.dot(Q, V)[:,:K])
 
 
 ### EMU algorithm
