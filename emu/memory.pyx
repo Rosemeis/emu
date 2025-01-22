@@ -48,7 +48,7 @@ cpdef void memCenter(const unsigned char[:,::1] G, float[:,::1] X, float[::1] f,
 					break
 
 # Extract and center chunk (SVD) for randomized SVD
-cpdef void memCenterSVD(const unsigned char[:,::1] G, const float[:,::1] U, \
+cpdef void memCenterSVD(const unsigned char[:,::1] G, float[:,::1] U, \
 		const float[:,::1] V, float[:,::1] X, float[::1] f, const size_t M_w) \
 		noexcept nogil:
 	cdef:
@@ -111,7 +111,7 @@ cpdef void memFinal(const unsigned char[:,::1] G, float[:,::1] X, float[::1] f, 
 					break
 
 # Extract and standardize chunk (SVD) for randomized SVD
-cpdef void memFinalSVD(const unsigned char[:,::1] G, const float[:,::1] U, \
+cpdef void memFinalSVD(const unsigned char[:,::1] G, float[:,::1] U, \
 		const float[:,::1] V, float[:,::1] X, float[::1] f, float[::1] d, \
 		const size_t M_w) noexcept nogil:
 	cdef:
