@@ -81,14 +81,17 @@ cpdef void standardInit(const unsigned char[:,::1] G, float[:,::1] E, \
 		unsigned char[4] recode = [2, 9, 1, 0]
 		unsigned char mask = 3
 		unsigned char g, byte
+		float fj, dj
 	for j in prange(M):
 		i = 0
+		fj = f[j]
+		dj = d[j]
 		for b in range(B):
 			byte = G[j,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
 				if g != 9:
-					E[j,i] = (<float>g - 2.0*f[j])*d[j]
+					E[j,i] = (<float>g - 2.0*fj)*dj
 				else:
 					E[j,i] = 0.0
 				byte = byte >> 2 # Right shift 2 bits
@@ -107,14 +110,16 @@ cpdef void centerInit(const unsigned char[:,::1] G, float[:,::1] E, \
 		unsigned char[4] recode = [2, 9, 1, 0]
 		unsigned char mask = 3
 		unsigned char g, byte
+		float fj
 	for j in prange(M):
 		i = 0
+		fj = f[j]
 		for b in range(B):
 			byte = G[j,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
 				if g != 9:
-					E[j,i] = <float>g - 2.0*f[j]
+					E[j,i] = <float>g - 2.0*fj
 				else:
 					E[j,i] = 0.0
 				byte = byte >> 2 # Right shift 2 bits
@@ -134,17 +139,22 @@ cpdef void standardAccel(const unsigned char[:,::1] G, float[:,::1] E, \
 		unsigned char[4] recode = [2, 9, 1, 0]
 		unsigned char mask = 3
 		unsigned char g, byte
+		float fj, dj
+		float* Uj
 	for j in prange(M):
 		i = 0
+		fj = f[j]
+		dj = f[j]
+		Uj = &U[j,0]
 		for b in range(B):
 			byte = G[j,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
 				if g != 9:
-					E[j,i] = <float>g - 2.0*f[j]
+					E[j,i] = <float>g - 2.0*fj
 				else:
-					E[j,i] = innerE(&U[j,0], &V[i,0], f[j], K)
-				E[j,i] *= d[j]
+					E[j,i] = innerE(Uj, &V[i,0], fj, K)
+				E[j,i] *= dj
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
@@ -162,16 +172,20 @@ cpdef void centerAccel(const unsigned char[:,::1] G, float[:,::1] E, \
 		unsigned char[4] recode = [2, 9, 1, 0]
 		unsigned char mask = 3
 		unsigned char g, byte
+		float fj
+		float* Uj
 	for j in prange(M):
 		i = 0
+		fj = f[j]
+		Uj = &U[j,0]
 		for b in range(B):
 			byte = G[j,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
 				if g != 9:
-					E[j,i] = <float>g - 2.0*f[j]
+					E[j,i] = <float>g - 2.0*fj
 				else:
-					E[j,i] = innerE(&U[j,0], &V[i,0], f[j], K)
+					E[j,i] = innerE(Uj, &V[i,0], fj, K)
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
@@ -206,6 +220,7 @@ cpdef void galinskyScan(const float[:,::1] U, float[:,::1] Dsquared) \
 		int M = U.shape[0]
 		int K = U.shape[1]
 		int j, k
+		float m = <float>M
 	for j in prange(M):
 		for k in range(K):
-			Dsquared[j,k] = (U[j,k]*U[j,k])*<float>M
+			Dsquared[j,k] = (U[j,k]*U[j,k])*m

@@ -29,15 +29,17 @@ cpdef void memCenter(const unsigned char[:,::1] G, float[:,::1] X, float[::1] f,
 		unsigned char[4] recode = [2, 9, 1, 0]
 		unsigned char mask = 3
 		unsigned char g, byte
+		float fl
 	for j in prange(M):
-		l = M_w + j
 		i = 0
+		l = M_w + j
+		fl = f[l]
 		for b in range(B):
 			byte = G[l,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
 				if g != 9:
-					X[j,i] = g - 2.0*f[l]
+					X[j,i] = g - 2.0*fl
 				else:
 					X[j,i] = 0.0
 				byte = byte >> 2 # Right shift 2 bits
@@ -54,21 +56,25 @@ cpdef void memCenterSVD(const unsigned char[:,::1] G, const float[:,::1] U, \
 		size_t N = X.shape[1]
 		size_t B = G.shape[1]
 		size_t K = U.shape[1]
-		size_t b, i, j, k, l, bytepart
+		size_t b, i, j, l, bytepart
 		unsigned char[4] recode = [2, 9, 1, 0]
 		unsigned char mask = 3
 		unsigned char g, byte
+		float fl
+		float* Ul
 	for j in prange(M):
-		l = M_w + j
 		i = 0
+		l = M_w + j
+		fl = f[l]
+		Ul = &U[l,0]
 		for b in range(B):
 			byte = G[l,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
 				if g != 9:
-					X[j,i] = g - 2.0*f[l]
+					X[j,i] = g - 2.0*fl
 				else:
-					X[j,i] = innerE(&U[l,0], &V[i,0], f[l], K)
+					X[j,i] = innerE(Ul, &V[i,0], fl, K)
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
@@ -85,15 +91,18 @@ cpdef void memFinal(const unsigned char[:,::1] G, float[:,::1] X, float[::1] f, 
 		unsigned char[4] recode = [2, 9, 1, 0]
 		unsigned char mask = 3
 		unsigned char g, byte
+		float fl, dl
 	for j in prange(M):
-		l = M_w + j
 		i = 0
+		l = M_w + j
+		fl = f[l]
+		dl = d[l]
 		for b in range(B):
 			byte = G[l,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
 				if g != 9:
-					X[j,i] = (g - 2.0*f[l])*d[l]
+					X[j,i] = (g - 2.0*fl)*dl
 				else:
 					X[j,i] = 0.0
 				byte = byte >> 2 # Right shift 2 bits
@@ -110,22 +119,27 @@ cpdef void memFinalSVD(const unsigned char[:,::1] G, const float[:,::1] U, \
 		size_t N = X.shape[1]
 		size_t B = G.shape[1]
 		size_t K = U.shape[1]
-		size_t b, i, j, k, l, bytepart
+		size_t b, i, j, l, bytepart
 		unsigned char[4] recode = [2, 9, 1, 0]
 		unsigned char mask = 3
 		unsigned char g, byte
+		float fl, dl
+		float* Ul
 	for j in prange(M):
-		l = M_w + j
 		i = 0
+		l = M_w + j
+		fl = f[l]
+		dl = d[l]
+		Ul = &U[l,0]
 		for b in range(B):
 			byte = G[l,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
 				if g != 9:
-					X[j,i] = g - 2.0*f[l]
+					X[j,i] = g - 2.0*fl
 				else:
-					X[j,i] = innerE(&U[l,0], &V[i,0], f[l], K)
-				X[j,i] *= d[l]
+					X[j,i] = innerE(Ul, &V[i,0], fl, K)
+				X[j,i] *= dl
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
