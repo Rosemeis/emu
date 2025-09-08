@@ -14,7 +14,7 @@ import sys
 from datetime import datetime
 from time import time
 
-VERSION = "1.2.1"
+VERSION = "1.3.0"
 
 # Argparse
 parser = argparse.ArgumentParser(prog="emu")
@@ -145,7 +145,7 @@ def main():
 			args.iter, args.tole, args.batch, args.power, rng)
 	else:
 		E = np.zeros((M, N), dtype=np.float32)
-		U, S, V, it, converged = functions.emuAlgorithm(G, E, f, d, N, args.eig, K, \
+		U, S, V, it, converged = functions.emuAlgorithm(G, E, f, d, N, args.eig, K, 
 			args.iter, args.tole, args.batch, args.power, rng)
 		del E
 	del G, f, d
@@ -163,8 +163,7 @@ def main():
 		F = np.loadtxt(f"{args.bfile}.fam", usecols=[0,1], dtype=np.str_)
 		h = ["#FID", "IID"] + [f"PC{k}" for k in range(1, K+1)]
 		V = np.hstack((F, np.round(V, 7)))
-		np.savetxt(f"{args.out}.eigvecs", V, fmt="%s", delimiter="\t", \
-			header="\t".join(h), comments="")
+		np.savetxt(f"{args.out}.eigvecs", V, fmt="%s", delimiter="\t", header="\t".join(h), comments="")
 	print(f"Saved eigenvector(s) as {args.out}.eigvecs")
 	np.savetxt(f"{args.out}.eigvals", (S**2)/float(M), fmt="%.7f")
 	print(f"Saved eigenvalue(s) as {args.out}.eigvals")

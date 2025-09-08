@@ -6,16 +6,16 @@ extensions = [
 	Extension(
 		name="emu.shared",
 		sources=["emu/shared.pyx"],
-		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
-		extra_link_args=['-fopenmp'],
+		extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-fno-signed-zeros', '-march=native'],
+		extra_link_args=['-fopenmp', '-lm'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
 	), 
 	Extension(
 		name="emu.memory",
 		sources=["emu/memory.pyx"],
-		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
-		extra_link_args=['-fopenmp'],
+		extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-fno-signed-zeros', '-march=native'],
+		extra_link_args=['-fopenmp', '-lm'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
 	)
@@ -23,7 +23,7 @@ extensions = [
 
 setup(
 	name="emu-popgen",
-	version="1.2.1",
+	version="1.3.0",
 	author="Jonas Meisner",
 	author_email="meisnerucph@gmail.com",
 	description="EM-PCA for inferring population structure in the presence of missingness",

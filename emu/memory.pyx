@@ -2,35 +2,45 @@
 import numpy as np
 cimport numpy as np
 from cython.parallel import prange
-from libc.math cimport sqrt
+from libc.stdint cimport uint8_t
+
+ctypedef uint8_t u8
+ctypedef float f32
+
+cdef f32 PRO_MIN = 1e-4
+cdef f32 PRO_MAX = 2.0 - (1e-4)
+cdef inline f32 _fmax(f32 a, f32 b) noexcept nogil: return a if a > b else b
+cdef inline f32 _fmin(f32 a, f32 b) noexcept nogil: return a if a < b else b
+cdef inline f32 _clamp1(f32 a) noexcept nogil: return _fmax(PRO_MIN, _fmin(a, PRO_MAX))
+
 
 ##### EMU-mem #####
 # Inline functions
-cdef inline float project(const float e, const float f) noexcept nogil:
-	return min(max(e + 2.0*f, 1e-4), 2.0-(1e-4))
-
-cdef inline float innerE(const float* u, const float* v, const float f, \
-		const size_t K) noexcept nogil:
+cdef inline f32 innerE(
+		const f32* u, const f32* v, const f32 f, const Py_ssize_t K
+	) noexcept nogil:
 	cdef:
 		size_t k
-		float e = 0.0
+		f32 d = 2.0*f
+		f32 e = d
 	for k in range(K):
 		e += u[k]*v[k]
-	return project(e, f) - 2.0*f
+	return _clamp1(e) - d
 
 # Extract and center chunk (frequencies) for randomized SVD
-cpdef void memCenter(const unsigned char[:,::1] G, float[:,::1] X, float[::1] f, \
-		const size_t M_w) noexcept nogil:
+cpdef void memCenter(
+		const u8[:,::1] G, f32[:,::1] X, f32[::1] f, const Py_ssize_t M_w
+	) noexcept nogil:
 	cdef:
-		size_t M = X.shape[0]
-		size_t N = X.shape[1]
-		size_t B = G.shape[1]
+		Py_ssize_t M = X.shape[0]
+		Py_ssize_t N = X.shape[1]
+		Py_ssize_t B = G.shape[1]
 		size_t b, i, j, l, bytepart
-		unsigned char[4] recode = [2, 9, 1, 0]
-		unsigned char mask = 3
-		unsigned char g, byte
-		float fl
-	for j in prange(M):
+		u8[4] recode = [2, 9, 1, 0]
+		u8 mask = 3
+		u8 g, byte
+		f32 fl
+	for j in prange(M, schedule='guided'):
 		i = 0
 		l = M_w + j
 		fl = f[l]
@@ -39,7 +49,7 @@ cpdef void memCenter(const unsigned char[:,::1] G, float[:,::1] X, float[::1] f,
 			for bytepart in range(4):
 				g = recode[byte & mask]
 				if g != 9:
-					X[j,i] = g - 2.0*fl
+					X[j,i] = <f32>g - 2.0*fl
 				else:
 					X[j,i] = 0.0
 				byte = byte >> 2 # Right shift 2 bits
@@ -48,21 +58,21 @@ cpdef void memCenter(const unsigned char[:,::1] G, float[:,::1] X, float[::1] f,
 					break
 
 # Extract and center chunk (SVD) for randomized SVD
-cpdef void memCenterSVD(const unsigned char[:,::1] G, float[:,::1] U, \
-		const float[:,::1] V, float[:,::1] X, float[::1] f, const size_t M_w) \
-		noexcept nogil:
+cpdef void memCenterSVD(
+		const u8[:,::1] G, f32[:,::1] U, const f32[:,::1] V, f32[:,::1] X, f32[::1] f, const Py_ssize_t M_w
+	) noexcept nogil:
 	cdef:
-		size_t M = X.shape[0]
-		size_t N = X.shape[1]
-		size_t B = G.shape[1]
-		size_t K = U.shape[1]
+		Py_ssize_t M = X.shape[0]
+		Py_ssize_t N = X.shape[1]
+		Py_ssize_t B = G.shape[1]
+		Py_ssize_t K = U.shape[1]
 		size_t b, i, j, l, bytepart
-		unsigned char[4] recode = [2, 9, 1, 0]
-		unsigned char mask = 3
-		unsigned char g, byte
-		float fl
-		float* Ul
-	for j in prange(M):
+		u8[4] recode = [2, 9, 1, 0]
+		u8 mask = 3
+		u8 g, byte
+		f32 fl
+		f32* Ul
+	for j in prange(M, schedule='guided'):
 		i = 0
 		l = M_w + j
 		fl = f[l]
@@ -72,7 +82,7 @@ cpdef void memCenterSVD(const unsigned char[:,::1] G, float[:,::1] U, \
 			for bytepart in range(4):
 				g = recode[byte & mask]
 				if g != 9:
-					X[j,i] = g - 2.0*fl
+					X[j,i] = <f32>g - 2.0*fl
 				else:
 					X[j,i] = innerE(Ul, &V[i,0], fl, K)
 				byte = byte >> 2 # Right shift 2 bits
@@ -81,18 +91,19 @@ cpdef void memCenterSVD(const unsigned char[:,::1] G, float[:,::1] U, \
 					break
 
 # Extract and standardize chunk (frequencies) for randomized SVD
-cpdef void memFinal(const unsigned char[:,::1] G, float[:,::1] X, float[::1] f, \
-		float[::1] d, const size_t M_w) noexcept nogil:
+cpdef void memFinal(
+		const u8[:,::1] G, f32[:,::1] X, f32[::1] f, f32[::1] d, const Py_ssize_t M_w
+	) noexcept nogil:
 	cdef:
-		size_t M = X.shape[0]
-		size_t N = X.shape[1]
-		size_t B = G.shape[1]
+		Py_ssize_t M = X.shape[0]
+		Py_ssize_t N = X.shape[1]
+		Py_ssize_t B = G.shape[1]
 		size_t b, i, j, l, bytepart
-		unsigned char[4] recode = [2, 9, 1, 0]
-		unsigned char mask = 3
-		unsigned char g, byte
-		float fl, dl
-	for j in prange(M):
+		u8[4] recode = [2, 9, 1, 0]
+		u8 mask = 3
+		u8 g, byte
+		f32 fl, dl
+	for j in prange(M, schedule='guided'):
 		i = 0
 		l = M_w + j
 		fl = f[l]
@@ -102,7 +113,7 @@ cpdef void memFinal(const unsigned char[:,::1] G, float[:,::1] X, float[::1] f, 
 			for bytepart in range(4):
 				g = recode[byte & mask]
 				if g != 9:
-					X[j,i] = (g - 2.0*fl)*dl
+					X[j,i] = (<f32>g - 2.0*fl)*dl
 				else:
 					X[j,i] = 0.0
 				byte = byte >> 2 # Right shift 2 bits
@@ -111,21 +122,21 @@ cpdef void memFinal(const unsigned char[:,::1] G, float[:,::1] X, float[::1] f, 
 					break
 
 # Extract and standardize chunk (SVD) for randomized SVD
-cpdef void memFinalSVD(const unsigned char[:,::1] G, float[:,::1] U, \
-		const float[:,::1] V, float[:,::1] X, float[::1] f, float[::1] d, \
-		const size_t M_w) noexcept nogil:
+cpdef void memFinalSVD(
+		const u8[:,::1] G, f32[:,::1] U, const f32[:,::1] V, f32[:,::1] X, f32[::1] f, f32[::1] d, const Py_ssize_t M_w
+	) noexcept nogil:
 	cdef:
-		size_t M = X.shape[0]
-		size_t N = X.shape[1]
-		size_t B = G.shape[1]
-		size_t K = U.shape[1]
+		Py_ssize_t M = X.shape[0]
+		Py_ssize_t N = X.shape[1]
+		Py_ssize_t B = G.shape[1]
+		Py_ssize_t K = U.shape[1]
 		size_t b, i, j, l, bytepart
-		unsigned char[4] recode = [2, 9, 1, 0]
-		unsigned char mask = 3
-		unsigned char g, byte
-		float fl, dl
-		float* Ul
-	for j in prange(M):
+		u8[4] recode = [2, 9, 1, 0]
+		u8 mask = 3
+		u8 g, byte
+		f32 fl, dl
+		f32* Ul
+	for j in prange(M, schedule='guided'):
 		i = 0
 		l = M_w + j
 		fl = f[l]
@@ -136,10 +147,9 @@ cpdef void memFinalSVD(const unsigned char[:,::1] G, float[:,::1] U, \
 			for bytepart in range(4):
 				g = recode[byte & mask]
 				if g != 9:
-					X[j,i] = g - 2.0*fl
+					X[j,i] = (<f32>g - 2.0*fl)*dl
 				else:
-					X[j,i] = innerE(Ul, &V[i,0], fl, K)
-				X[j,i] *= dl
+					X[j,i] = innerE(Ul, &V[i,0], fl, K)*dl
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:

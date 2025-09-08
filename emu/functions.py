@@ -39,8 +39,7 @@ def eigSVD(H):
 	D, V = np.linalg.eigh(np.dot(H.T, H))
 	S = np.sqrt(D)
 	U = np.dot(H, V*(1.0/S))
-	return np.ascontiguousarray(U[:,::-1]), np.ascontiguousarray(S[::-1]), \
-		np.ascontiguousarray(V[:,::-1])
+	return np.ascontiguousarray(U[:,::-1]), np.ascontiguousarray(S[::-1]), np.ascontiguousarray(V[:,::-1])
 
 # Randomized SVD with dynamic shift
 def randomizedSVD(E, K, power, rng):
@@ -140,8 +139,6 @@ def memorySVD(G, U0, V0, f, d, N, K, batch, power, rng):
 				memory.memFinalSVD(G, U0, V0, X, f, d, M_w)
 		A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
 	U, S, V = eigSVD(A)
-	U = np.ascontiguousarray(U[:,:K])
-	V = np.ascontiguousarray(np.dot(Q, V)[:,:K])
 	return np.ascontiguousarray(U[:,:K]), S[:K], np.ascontiguousarray(np.dot(Q, V)[:,:K])
 
 
