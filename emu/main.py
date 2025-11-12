@@ -14,7 +14,7 @@ import sys
 from datetime import datetime
 from time import time
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 # Argparse
 parser = argparse.ArgumentParser(prog="emu")
@@ -109,12 +109,9 @@ def main():
 	from emu import shared
 
 	# Set K
-	if args.eig_out is None:
-		K = args.eig
-	else:
-		K = args.eig_out
+	K = args.eig if args.eig_out is None else args.eig_out
 
-	### Read data
+	# Read data
 	assert os.path.isfile(f"{args.bfile}.bed"), "bed file doesn't exist!"
 	assert os.path.isfile(f"{args.bfile}.bim"), "bim file doesn't exist!"
 	assert os.path.isfile(f"{args.bfile}.fam"), "fam file doesn't exist!"
@@ -136,17 +133,23 @@ def main():
 		"Fixed sites in dataset. Please perform MAF filtering!"
 	del n
 
-	### Perform EM-PCA
+	# Run options dictionary
+	run = {
+		"iter":args.iter,
+		"tole":args.tole,
+		"batch":args.batch,
+		"power":args.power
+	}
+
+	# Perform EM-PCA
 	print(f"\nPerforming EMU using {args.eig} eigenvector(s).")
 	rng = np.random.default_rng(args.seed)
 	if args.mem:
 		print("Using memory-efficient variant of EMU.")
-		U, S, V, it, converged = functions.emuAlgorithm(G, None, f, d, N, args.eig, K, \
-			args.iter, args.tole, args.batch, args.power, rng)
+		U, S, V, it, converged = functions.emuAlgorithm(G, None, f, d, M, N, args.eig, K, rng, run)
 	else:
 		E = np.zeros((M, N), dtype=np.float32)
-		U, S, V, it, converged = functions.emuAlgorithm(G, E, f, d, N, args.eig, K, 
-			args.iter, args.tole, args.batch, args.power, rng)
+		U, S, V, it, converged = functions.emuAlgorithm(G, E, f, d, M, N, args.eig, K, rng, run)
 		del E
 	del G, f, d
 

@@ -80,18 +80,12 @@ def memorySVD(G, U0, V0, f, d, N, K, batch, power, rng):
 	# Prime iteration
 	for w in np.arange(W):
 		M_w = w*batch
-		if w == (W-1): # Last batch
+		if w == (W - 1): # Last batch
 			X = np.zeros((M - M_w, N), dtype=np.float32)
 		if d is None:
-			if U0 is None:
-				memory.memCenter(G, X, f, M_w)
-			else:
-				memory.memCenterSVD(G, U0, V0, X, f, M_w)
+			memory.memCen(G, X, f, M_w) if U0 is None else memory.memCenSVD(G, U0, V0, X, f, M_w)
 		else:
-			if U0 is None:
-				memory.memFinal(G, X, f, d, M_w)
-			else:
-				memory.memFinalSVD(G, U0, V0, X, f, d, M_w)
+			memory.memFin(G, X, f, d, M_w) if U0 is None else memory.memFinSVD(G, U0, V0, X, f, d, M_w)
 		H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
 	Q, _, _ = eigSVD(H)
 	H.fill(0.0)
@@ -101,18 +95,12 @@ def memorySVD(G, U0, V0, f, d, N, K, batch, power, rng):
 		X = np.zeros((batch, N), dtype=np.float32)
 		for w in np.arange(W):
 			M_w = w*batch
-			if w == (W-1): # Last batch
+			if w == (W - 1): # Last batch
 				X = np.zeros((M - M_w, N), dtype=np.float32)
 			if d is None:
-				if U0 is None:
-					memory.memCenter(G, X, f, M_w)
-				else:
-					memory.memCenterSVD(G, U0, V0, X, f, M_w)
+				memory.memCen(G, X, f, M_w) if U0 is None else memory.memCenSVD(G, U0, V0, X, f, M_w)
 			else:
-				if U0 is None:
-					memory.memFinal(G, X, f, d, M_w)
-				else:
-					memory.memFinalSVD(G, U0, V0, X, f, d, M_w)
+				memory.memFin(G, X, f, d, M_w) if U0 is None else memory.memFinSVD(G, U0, V0, X, f, d, M_w)
 			A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
 			H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
 		H -= a*Q
@@ -125,26 +113,24 @@ def memorySVD(G, U0, V0, f, d, N, K, batch, power, rng):
 	X = np.zeros((batch, N), dtype=np.float32)
 	for w in np.arange(W):
 		M_w = w*batch
-		if w == (W-1): # Last batch
+		if w == (W - 1): # Last batch
 			X = np.zeros((M - M_w, N), dtype=np.float32)
 		if d is None:
-			if U0 is None:
-				memory.memCenter(G, X, f, M_w)
-			else:
-				memory.memCenterSVD(G, U0, V0, X, f, M_w)
+			memory.memCen(G, X, f, M_w) if U0 is None else memory.memCenSVD(G, U0, V0, X, f, M_w)
 		else:
-			if U0 is None:
-				memory.memFinal(G, X, f, d, M_w)
-			else:
-				memory.memFinalSVD(G, U0, V0, X, f, d, M_w)
+			memory.memFin(G, X, f, d, M_w) if U0 is None else memory.memFinSVD(G, U0, V0, X, f, d, M_w)
 		A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
 	U, S, V = eigSVD(A)
 	return np.ascontiguousarray(U[:,:K]), S[:K], np.ascontiguousarray(np.dot(Q, V)[:,:K])
 
 
 ### EMU algorithm
-def emuAlgorithm(G, E, f, d, N, e, K, iter, tole, batch, power, rng):
-	M = G.shape[0]
+def emuAlgorithm(G, E, f, d, M, N, e, K, rng, run):
+	# Extract run options
+	iter = run["iter"]
+	tole = run["tole"]
+	batch = run["batch"]
+	power = run["power"]
 
 	# Exit without performing EMU
 	if iter < 1:
@@ -211,7 +197,7 @@ def emuAlgorithm(G, E, f, d, N, e, K, iter, tole, batch, power, rng):
 
 			# Break iterative update if converged
 			rmseU = shared.rmse(U, U_pre)
-			print(f"({it})\tRMSE = {rmseU:.8f}\t({time()-ts:.1f}s)")
+			print(f"({it})\tRMSE = {rmseU:.8f}\t({time() - ts:.1f}s)")
 			if rmseU < tole:
 				print("EM-PCA has converged.")
 				converged = True

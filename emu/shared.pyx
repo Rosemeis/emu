@@ -2,7 +2,7 @@
 import numpy as np
 cimport numpy as np
 from cython.parallel import prange
-from libc.math cimport sqrtf
+from libc.math cimport fmaxf, fminf, sqrtf
 from libc.stdint cimport uint8_t, uint32_t
 
 ctypedef uint8_t u8
@@ -13,15 +13,13 @@ cdef f32 PRO_MIN = 1e-4
 cdef f32 PRO_MAX = 2.0 - (1e-4)
 cdef f32 ACC_MIN = 1.0
 cdef f32 ACC_MAX = 256.0
-cdef inline f32 _fmax(f32 a, f32 b) noexcept nogil: return a if a > b else b
-cdef inline f32 _fmin(f32 a, f32 b) noexcept nogil: return a if a < b else b
-cdef inline f32 _clamp1(f32 a) noexcept nogil: return _fmax(PRO_MIN, _fmin(a, PRO_MAX))
-cdef inline f32 _clamp2(f32 a) noexcept nogil: return _fmax(ACC_MIN, _fmin(a, ACC_MAX))
+cdef inline f32 _clamp1(f32 a) noexcept nogil: return fmaxf(PRO_MIN, fminf(a, PRO_MAX))
+cdef inline f32 _clamp2(f32 a) noexcept nogil: return fmaxf(ACC_MIN, fminf(a, ACC_MAX))
 
 
-##### EMU-mem #####
+##### EMU #####
 # Inline functions
-cdef inline f32 innerE(
+cdef inline f32 _innerE(
 		const f32* u, const f32* v, const f32 f, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
@@ -32,7 +30,7 @@ cdef inline f32 innerE(
 		e += u[k]*v[k]
 	return _clamp1(e) - d
 
-cdef inline f32 computeC(
+cdef inline f32 _computeC(
 		const f32* x0, const f32* x1, const f32* x2, const Py_ssize_t I
 	) noexcept nogil:
 	cdef:
@@ -48,7 +46,7 @@ cdef inline f32 computeC(
 	c = -(sum1/sum2)
 	return _clamp2(c)
 
-cdef inline void updateAlpha(
+cdef inline void _updateAlpha(
 		f32* x0, const f32* x1, const f32* x2, const f32 c1, const Py_ssize_t I
 	) noexcept nogil:
 	cdef:
@@ -109,10 +107,7 @@ cpdef void standardInit(
 			byte = G[j,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
-				if g != 9:
-					E[j,i] = (<f32>g - 2.0*fj)*dj
-				else:
-					E[j,i] = 0.0
+				E[j,i] = (<f32>g - 2.0*fj)*dj if g != 9 else 0.0 
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
@@ -138,10 +133,7 @@ cpdef void centerInit(
 			byte = G[j,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
-				if g != 9:
-					E[j,i] = <f32>g - 2.0*fj
-				else:
-					E[j,i] = 0.0
+				E[j,i] = <f32>g - 2.0*fj if g != 9 else 0.0
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
@@ -171,10 +163,7 @@ cpdef void standardAccel(
 			byte = G[j,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
-				if g != 9:
-					E[j,i] = (<f32>g - 2.0*fj)*dj
-				else:
-					E[j,i] = innerE(Uj, &V[i,0], fj, K)*dj
+				E[j,i] = (<f32>g - 2.0*fj)*dj if g != 9 else _innerE(Uj, &V[i,0], fj, K)*dj
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
@@ -203,10 +192,7 @@ cpdef void centerAccel(
 			byte = G[j,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
-				if g != 9:
-					E[j,i] = <f32>g - 2.0*fj
-				else:
-					E[j,i] = innerE(Uj, &V[i,0], fj, K)
+				E[j,i] = <f32>g - 2.0*fj if g != 9 else _innerE(Uj, &V[i,0], fj, K)
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
@@ -220,8 +206,8 @@ cpdef void alphaStep(
 		Py_ssize_t I = X0.shape[0]
 		Py_ssize_t J = X0.shape[1]
 		f32 c
-	c = computeC(&X0[0,0], &X1[0,0], &X2[0,0], I*J)
-	updateAlpha(&X0[0,0], &X1[0,0], &X2[0,0], c, I*J)
+	c = _computeC(&X0[0,0], &X1[0,0], &X2[0,0], I*J)
+	_updateAlpha(&X0[0,0], &X1[0,0], &X2[0,0], c, I*J)
 
 # Root-mean squared error
 cpdef f32 rmse(
@@ -249,3 +235,33 @@ cpdef void galinskyScan(
 	for j in prange(M, schedule='guided'):
 		for k in range(K):
 			Dsquared[j,k] = (U[j,k]*U[j,k])*m
+
+# Condense an expanded genotype matrix
+cpdef void condenseGeno(
+		u8[:,::1] G, const u8[:,::1] X
+	) noexcept nogil:
+	cdef:
+		Py_ssize_t M = X.shape[0]
+		Py_ssize_t N = X.shape[1]
+		Py_ssize_t B = G.shape[1]
+		size_t b, i, j, bit
+		u8* g
+		u8* x
+	for j in prange(M, schedule='guided'):
+		i = 0
+		g = &G[j,0]
+		x = &X[j,0]
+		for b in range(B):
+			for bit in range(0, 8, 2):
+				if x[i] == 0:
+					g[b] |= (1<<bit)
+					g[b] |= (1<<(bit + 1))
+				elif x[i] == 1:
+					g[b] |= (1<<(bit + 1))
+				elif x[i] == 9:
+					g[b] |= (1<<bit)
+				
+				# Increase counter and check for break
+				i = i + 1
+				if i == N:
+					break

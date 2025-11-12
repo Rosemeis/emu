@@ -2,6 +2,7 @@
 import numpy as np
 cimport numpy as np
 from cython.parallel import prange
+from libc.math cimport fmaxf, fminf
 from libc.stdint cimport uint8_t
 
 ctypedef uint8_t u8
@@ -9,14 +10,12 @@ ctypedef float f32
 
 cdef f32 PRO_MIN = 1e-4
 cdef f32 PRO_MAX = 2.0 - (1e-4)
-cdef inline f32 _fmax(f32 a, f32 b) noexcept nogil: return a if a > b else b
-cdef inline f32 _fmin(f32 a, f32 b) noexcept nogil: return a if a < b else b
-cdef inline f32 _clamp1(f32 a) noexcept nogil: return _fmax(PRO_MIN, _fmin(a, PRO_MAX))
+cdef inline f32 _clamp1(f32 a) noexcept nogil: return fmaxf(PRO_MIN, fminf(a, PRO_MAX))
 
 
 ##### EMU-mem #####
 # Inline functions
-cdef inline f32 innerE(
+cdef inline f32 _innerE(
 		const f32* u, const f32* v, const f32 f, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
@@ -28,7 +27,7 @@ cdef inline f32 innerE(
 	return _clamp1(e) - d
 
 # Extract and center chunk (frequencies) for randomized SVD
-cpdef void memCenter(
+cpdef void memCen(
 		const u8[:,::1] G, f32[:,::1] X, f32[::1] f, const Py_ssize_t M_w
 	) noexcept nogil:
 	cdef:
@@ -48,17 +47,14 @@ cpdef void memCenter(
 			byte = G[l,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
-				if g != 9:
-					X[j,i] = <f32>g - 2.0*fl
-				else:
-					X[j,i] = 0.0
+				X[j,i] = <f32>g - 2.0*fl if g != 9 else 0.0
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
 					break
 
 # Extract and center chunk (SVD) for randomized SVD
-cpdef void memCenterSVD(
+cpdef void memCenSVD(
 		const u8[:,::1] G, f32[:,::1] U, const f32[:,::1] V, f32[:,::1] X, f32[::1] f, const Py_ssize_t M_w
 	) noexcept nogil:
 	cdef:
@@ -81,17 +77,14 @@ cpdef void memCenterSVD(
 			byte = G[l,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
-				if g != 9:
-					X[j,i] = <f32>g - 2.0*fl
-				else:
-					X[j,i] = innerE(Ul, &V[i,0], fl, K)
+				X[j,i] = <f32>g - 2.0*fl if g != 9 else _innerE(Ul, &V[i,0], fl, K)
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
 					break
 
 # Extract and standardize chunk (frequencies) for randomized SVD
-cpdef void memFinal(
+cpdef void memFin(
 		const u8[:,::1] G, f32[:,::1] X, f32[::1] f, f32[::1] d, const Py_ssize_t M_w
 	) noexcept nogil:
 	cdef:
@@ -112,17 +105,14 @@ cpdef void memFinal(
 			byte = G[l,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
-				if g != 9:
-					X[j,i] = (<f32>g - 2.0*fl)*dl
-				else:
-					X[j,i] = 0.0
+				X[j,i] = (<f32>g - 2.0*fl)*dl if g != 9 else 0.0
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
 					break
 
 # Extract and standardize chunk (SVD) for randomized SVD
-cpdef void memFinalSVD(
+cpdef void memFinSVD(
 		const u8[:,::1] G, f32[:,::1] U, const f32[:,::1] V, f32[:,::1] X, f32[::1] f, f32[::1] d, const Py_ssize_t M_w
 	) noexcept nogil:
 	cdef:
@@ -146,10 +136,7 @@ cpdef void memFinalSVD(
 			byte = G[l,b]
 			for bytepart in range(4):
 				g = recode[byte & mask]
-				if g != 9:
-					X[j,i] = (<f32>g - 2.0*fl)*dl
-				else:
-					X[j,i] = innerE(Ul, &V[i,0], fl, K)*dl
+				X[j,i] = (<f32>g - 2.0*fl)*dl if g != 9 else _innerE(Ul, &V[i,0], fl, K)*dl
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
