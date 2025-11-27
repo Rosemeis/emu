@@ -14,7 +14,7 @@ import sys
 from datetime import datetime
 from time import time
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 
 # Argparse
 parser = argparse.ArgumentParser(prog="emu")
@@ -38,8 +38,8 @@ parser.add_argument("--iter", metavar="INT", type=int, default=100,
 	help="Maximum iterations in estimation of individual allele frequencies (100)")
 parser.add_argument("--tole", metavar="FLOAT", type=float, default=5e-7,
 	help="Tolerance in update for individual allele frequencies (5e-7)")
-parser.add_argument("--power", metavar="INT", type=int, default=10,
-	help="Number of power iterations in randomized SVD (10)")
+parser.add_argument("--power", metavar="INT", type=int, default=11,
+	help="Number of power iterations in randomized SVD (11)")
 parser.add_argument("--batch", metavar="INT", type=int, default=8192,
 	help="Number of SNPs to use in batches of memory variant (8192)")
 parser.add_argument("--seed", metavar="INT", type=int, default=42,

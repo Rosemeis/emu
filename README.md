@@ -1,4 +1,4 @@
-# EMU (v1.4.0)
+# EMU (v1.4.1)
 EMU is a software for performing principal component analysis (PCA) in the presence of missingness for genetic datasets. EMU can handle both random and non-random missingness by modelling it directly through a truncated SVD approach. EMU uses binary PLINK files as input.
 
 ### Citation
@@ -37,6 +37,9 @@ emu -h
 
 # Model and extract 2 eigenvectors using the EM-PCA algorithm
 emu --bfile test --eig 2 --threads 64 --out test.emu
+
+# Use 2 eigenvectors for modelling but extract 10 eigenvectors
+emu --bfile test --eig 2 --eig-out 10 --threads 64 --out test.emu
 ```
 
 ### Memory-efficient variant

@@ -156,7 +156,7 @@ def emuAlgorithm(G, E, f, d, M, N, e, K, rng, run):
 			U, S, V = memorySVD(G, None, None, f, None, N, e, batch, power, rng)
 		else:
 			shared.centerInit(G, E, f)
-			U, S, V = randomizedSVD(E, K, power, rng)
+			U, S, V = randomizedSVD(E, e, power, rng)
 		U, V = signFlip(U, V)
 		V *= S
 		U_pre = np.copy(U)
