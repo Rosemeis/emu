@@ -1,5 +1,4 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
-import numpy as np
 cimport numpy as np
 from cython.parallel import prange
 from libc.math cimport fmaxf, fminf, sqrtf
@@ -12,7 +11,7 @@ ctypedef float f32
 cdef f32 PRO_MIN = 1e-4
 cdef f32 PRO_MAX = 2.0 - (1e-4)
 cdef f32 ACC_MIN = 1.0
-cdef f32 ACC_MAX = 256.0
+cdef f32 ACC_MAX = 96.0
 cdef inline f32 _clamp1(f32 a) noexcept nogil: return fmaxf(PRO_MIN, fminf(a, PRO_MAX))
 cdef inline f32 _clamp2(f32 a) noexcept nogil: return fmaxf(ACC_MIN, fminf(a, ACC_MAX))
 
@@ -38,7 +37,7 @@ cdef inline f32 _computeC(
 		f32 sum1 = 0.0
 		f32 sum2 = 0.0
 		f32 c, u, v
-	for i in prange(I):
+	for i in prange(I, schedule='guided'):
 		u = x1[i] - x0[i]
 		v = x2[i] - x1[i] - u
 		sum1 += u*u
@@ -52,7 +51,7 @@ cdef inline void _updateAlpha(
 	cdef:
 		size_t i
 		f32 c2 = 1.0 - c1
-	for i in prange(I):
+	for i in prange(I, schedule='guided'):
 		x0[i] = c2*x1[i] + c1*x2[i]
 
 # Estimate population allele frequencies

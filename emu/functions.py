@@ -144,22 +144,19 @@ def emuAlgorithm(G, E, f, d, M, N, e, K, rng, run):
 		U, V = signFlip(U, V)
 		return U, S, V, 0, False
 	else:
-		# Set up acceleration containers
-		U1 = np.zeros((M, e), dtype=np.float32)
-		U2 = np.zeros((M, e), dtype=np.float32)
-		V1 = np.zeros((N, e), dtype=np.float32)
-		V2 = np.zeros((N, e), dtype=np.float32)
-
 		# Estimate initial individual allele frequencies
-		print("Initiating accelerated EM scheme")
+		ts = time()
+		print("Initiating accelerated scheme", end="")
 		if E is None:
 			U, S, V = memorySVD(G, None, None, f, None, N, e, batch, power, rng)
 		else:
 			shared.centerInit(G, E, f)
 			U, S, V = randomizedSVD(E, e, power, rng)
 		U, V = signFlip(U, V)
-		V *= S
+		U *= np.sqrt(S)
+		V *= np.sqrt(S)
 		U_pre = np.copy(U)
+		print(f"\rInitiating accelerated scheme\t({time() - ts:.1f}s)")
 
 		# Iterative estimation of individual allele frequencies
 		ts = time()
@@ -171,7 +168,8 @@ def emuAlgorithm(G, E, f, d, M, N, e, K, rng, run):
 				shared.centerAccel(G, E, U, V, f)
 				U1, S1, V1 = randomizedSVD(E, e, power, rng)
 			U1, V1 = signFlip(U1, V1)
-			V1 *= S1
+			U1 *= np.sqrt(S1)
+			V1 *= np.sqrt(S1)
 
 			# 2nd SVD step
 			if E is None:
@@ -180,7 +178,8 @@ def emuAlgorithm(G, E, f, d, M, N, e, K, rng, run):
 				shared.centerAccel(G, E, U1, V1, f)
 				U2, S2, V2 = randomizedSVD(E, e, power, rng)
 			U2, V2 = signFlip(U2, V2)
-			V2 *= S2
+			U2 *= np.sqrt(S2)
+			V2 *= np.sqrt(S2)
 
 			# QN steps
 			shared.alphaStep(U, U1, U2)
@@ -193,7 +192,8 @@ def emuAlgorithm(G, E, f, d, M, N, e, K, rng, run):
 				shared.centerAccel(G, E, U, V, f)
 				U, S, V = randomizedSVD(E, e, power, rng)
 			U, V = signFlip(U, V)
-			V *= S
+			U *= np.sqrt(S)
+			V *= np.sqrt(S)	
 
 			# Break iterative update if converged
 			rmseU = shared.rmse(U, U_pre)
