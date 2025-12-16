@@ -4,6 +4,7 @@ from time import time
 from emu import memory
 from emu import shared
 
+
 ##### EMU functions #####
 ### Read PLINK files
 def readPlink(bfile):
@@ -26,11 +27,11 @@ def readPlink(bfile):
 ### Helper function
 # Flip signs of SVD output - Based on scikit-learn (svd_flip)
 def signFlip(U, V):
-    mcols = np.argmax(np.abs(U), axis=0)
-    signs = np.sign(U[mcols, range(U.shape[1])])
-    U *= signs
-    V *= signs
-    return U, V
+	mcols = np.argmax(np.abs(U), axis=0)
+	signs = np.sign(U[mcols, range(U.shape[1])])
+	U *= signs
+	V *= signs
+	return U, V
 
 
 ### Randomized SVD functions
@@ -67,6 +68,53 @@ def randomizedSVD(E, K, power, rng):
 	U, S, V = eigSVD(A)
 	return np.ascontiguousarray(U[:,:K]), S[:K], np.ascontiguousarray(np.dot(Q, V)[:,:K])
 
+# Batched randomized SVD with dynamic shift (frequency-based)
+def memoryInit(G, f, d, N, K, batch, power, rng):
+	M = G.shape[0]
+	W = ceil(M/batch)
+	a = 0.0
+	L = max(K + 10, 20)
+	H = np.zeros((N, L), dtype=np.float32)
+	X = np.zeros((batch, N), dtype=np.float32)
+	A = rng.standard_normal(size=(M, L), dtype=np.float32)
+
+	# Prime iteration
+	for w in np.arange(W):
+		M_w = w*batch
+		if w == (W - 1): # Last batch
+			X = np.zeros((M - M_w, N), dtype=np.float32)
+		memory.memCen(G, X, f, M_w) if d is None else memory.memFin(G, X, f, d, M_w)
+		H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
+	Q, _, _ = eigSVD(H)
+	H.fill(0.0)
+
+	# Power iterations
+	for _ in np.arange(power):
+		X = np.zeros((batch, N), dtype=np.float32)
+		for w in np.arange(W):
+			M_w = w*batch
+			if w == (W - 1): # Last batch
+				X = np.zeros((M - M_w, N), dtype=np.float32)
+			memory.memCen(G, X, f, M_w) if d is None else memory.memFin(G, X, f, d, M_w)
+			A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
+			H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
+		H -= a*Q
+		Q, S, _ = eigSVD(H)
+		H.fill(0.0)
+		if S[-1] > a:
+			a = 0.5*(S[-1] + a)
+
+	# Extract singular vectors
+	X = np.zeros((batch, N), dtype=np.float32)
+	for w in np.arange(W):
+		M_w = w*batch
+		if w == (W - 1): # Last batch
+			X = np.zeros((M - M_w, N), dtype=np.float32)
+		memory.memCen(G, X, f, M_w) if d is None else memory.memFin(G, X, f, d, M_w)
+		A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
+	U, S, V = eigSVD(A)
+	return np.ascontiguousarray(U[:,:K]), S[:K], np.ascontiguousarray(np.dot(Q, V)[:,:K])
+
 # Batched randomized SVD with dynamic shift
 def memorySVD(G, U0, V0, f, d, N, K, batch, power, rng):
 	M = G.shape[0]
@@ -82,10 +130,7 @@ def memorySVD(G, U0, V0, f, d, N, K, batch, power, rng):
 		M_w = w*batch
 		if w == (W - 1): # Last batch
 			X = np.zeros((M - M_w, N), dtype=np.float32)
-		if d is None:
-			memory.memCen(G, X, f, M_w) if U0 is None else memory.memCenSVD(G, U0, V0, X, f, M_w)
-		else:
-			memory.memFin(G, X, f, d, M_w) if U0 is None else memory.memFinSVD(G, U0, V0, X, f, d, M_w)
+		memory.memCenSVD(G, U0, V0, X, f, M_w) if d is None else memory.memFinSVD(G, U0, V0, X, f, d, M_w)
 		H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
 	Q, _, _ = eigSVD(H)
 	H.fill(0.0)
@@ -97,10 +142,7 @@ def memorySVD(G, U0, V0, f, d, N, K, batch, power, rng):
 			M_w = w*batch
 			if w == (W - 1): # Last batch
 				X = np.zeros((M - M_w, N), dtype=np.float32)
-			if d is None:
-				memory.memCen(G, X, f, M_w) if U0 is None else memory.memCenSVD(G, U0, V0, X, f, M_w)
-			else:
-				memory.memFin(G, X, f, d, M_w) if U0 is None else memory.memFinSVD(G, U0, V0, X, f, d, M_w)
+			memory.memCenSVD(G, U0, V0, X, f, M_w) if d is None else memory.memFinSVD(G, U0, V0, X, f, d, M_w)
 			A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
 			H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
 		H -= a*Q
@@ -115,43 +157,111 @@ def memorySVD(G, U0, V0, f, d, N, K, batch, power, rng):
 		M_w = w*batch
 		if w == (W - 1): # Last batch
 			X = np.zeros((M - M_w, N), dtype=np.float32)
-		if d is None:
-			memory.memCen(G, X, f, M_w) if U0 is None else memory.memCenSVD(G, U0, V0, X, f, M_w)
-		else:
-			memory.memFin(G, X, f, d, M_w) if U0 is None else memory.memFinSVD(G, U0, V0, X, f, d, M_w)
+		memory.memCenSVD(G, U0, V0, X, f, M_w) if d is None else memory.memFinSVD(G, U0, V0, X, f, d, M_w)
+		A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
+	U, S, V = eigSVD(A)
+	return np.ascontiguousarray(U[:,:K]), S[:K], np.ascontiguousarray(np.dot(Q, V)[:,:K])
+
+# Batched randomized SVD with dynamic shift (frequency-based)
+def memoryNoise(G, f, n, N, K, batch, power, rng):
+	M = G.shape[0]
+	W = ceil(M/batch)
+	a = 0.0
+	L = max(K + 10, 20)
+	H = np.zeros((N, L), dtype=np.float32)
+	X = np.zeros((batch, N), dtype=np.float32)
+	A = rng.standard_normal(size=(M, L), dtype=np.float32)
+
+	# Prime iteration
+	for w in np.arange(W):
+		M_w = w*batch
+		if w == (W - 1): # Last batch
+			X = np.zeros((M - M_w, N), dtype=np.float32)
+		memory.memNoise(G, X, f, n, M_w)
+		H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
+	Q, _, _ = eigSVD(H)
+	H.fill(0.0)
+
+	# Power iterations
+	for _ in np.arange(power):
+		X = np.zeros((batch, N), dtype=np.float32)
+		for w in np.arange(W):
+			M_w = w*batch
+			if w == (W - 1): # Last batch
+				X = np.zeros((M - M_w, N), dtype=np.float32)
+			memory.memNoise(G, X, f, n, M_w)
+			A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
+			H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
+		H -= a*Q
+		Q, S, _ = eigSVD(H)
+		H.fill(0.0)
+		if S[-1] > a:
+			a = 0.5*(S[-1] + a)
+
+	# Extract singular vectors
+	X = np.zeros((batch, N), dtype=np.float32)
+	for w in np.arange(W):
+		M_w = w*batch
+		if w == (W - 1): # Last batch
+			X = np.zeros((M - M_w, N), dtype=np.float32)
+		memory.memNoise(G, X, f, n, M_w)
 		A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
 	U, S, V = eigSVD(A)
 	return np.ascontiguousarray(U[:,:K]), S[:K], np.ascontiguousarray(np.dot(Q, V)[:,:K])
 
 
 ### EMU algorithm
-def emuAlgorithm(G, E, f, d, M, N, e, K, rng, run):
+def emuAlgorithm(G, E, f, N, e, K, run):
+	if E is None:
+		print("Using memory-efficient variant of EMU.")
+
 	# Extract run options
-	iter = run["iter"]
-	tole = run["tole"]
-	batch = run["batch"]
-	power = run["power"]
+	rng = np.random.default_rng(run["seed"])
+	b = run["batch"]
+	p = run["power"]
+
+	# Estimate scaling vector
+	d = 1.0/np.sqrt(2.0*f*(1.0 - f))
 
 	# Exit without performing EMU
-	if iter < 1:
+	if run["iter"] < 1:
+		# Estimating final SVD (without iterations) 
 		print("Warning, no EM-PCA iterations are performed!")
 		print(f"Extracting {K} eigenvector(s).")
 		if E is None:
-			U, S, V = memorySVD(G, None, None, f, d, N, K, batch, power, rng)
+			U, S, V = memoryInit(G, f, d, N, K, b, p, rng)
 		else:
 			shared.standardInit(G, E, f, d)
-			U, S, V = randomizedSVD(E, K, power, rng)
+			U, S, V = randomizedSVD(E, K, p, rng)
 		U, V = signFlip(U, V)
-		return U, S, V, 0, False
+
+		# Create output structure
+		res = {
+			"U":U,
+			"S":S,
+			"V":V,
+			"iter":0,
+			"conv":False
+		}
+		return res
 	else:
 		# Estimate initial individual allele frequencies
 		ts = time()
 		print("Initiating accelerated scheme", end="")
-		if E is None:
-			U, S, V = memorySVD(G, None, None, f, None, N, e, batch, power, rng)
+		if run["noise"] is not None:
+			n = rng.normal(0.0, run["noise"], size=G.shape[0]).astype(np.float32)
+			if E is None:
+				U, S, V = memoryNoise(G, f, n, N, e, b, p, rng)
+			else:
+				shared.centerNoise(G, E, f, n)
+				U, S, V = randomizedSVD(E, e, p, rng)
+			del n
 		else:
-			shared.centerInit(G, E, f)
-			U, S, V = randomizedSVD(E, e, power, rng)
+			if E is None:
+				U, S, V = memoryInit(G, f, None, N, e, b, p, rng)
+			else:
+				shared.centerInit(G, E, f)
+				U, S, V = randomizedSVD(E, e, p, rng)
 		U, V = signFlip(U, V)
 		U *= np.sqrt(S)
 		V *= np.sqrt(S)
@@ -160,23 +270,23 @@ def emuAlgorithm(G, E, f, d, M, N, e, K, rng, run):
 
 		# Iterative estimation of individual allele frequencies
 		ts = time()
-		for it in range(1, iter+1):
+		for it in range(1, run["iter"] + 1):
 			# 1st SVD step
 			if E is None:
-				U1, S1, V1 = memorySVD(G, U, V, f, None, N, e, batch, power, rng)
+				U1, S1, V1 = memorySVD(G, U, V, f, None, N, e, b, p, rng)
 			else:
 				shared.centerAccel(G, E, U, V, f)
-				U1, S1, V1 = randomizedSVD(E, e, power, rng)
+				U1, S1, V1 = randomizedSVD(E, e, p, rng)
 			U1, V1 = signFlip(U1, V1)
 			U1 *= np.sqrt(S1)
 			V1 *= np.sqrt(S1)
 
 			# 2nd SVD step
 			if E is None:
-				U2, S2, V2 = memorySVD(G, U1, V1, f, None, N, e, batch, power, rng)
+				U2, S2, V2 = memorySVD(G, U1, V1, f, None, N, e, b, p, rng)
 			else:
 				shared.centerAccel(G, E, U1, V1, f)
-				U2, S2, V2 = randomizedSVD(E, e, power, rng)
+				U2, S2, V2 = randomizedSVD(E, e, p, rng)
 			U2, V2 = signFlip(U2, V2)
 			U2 *= np.sqrt(S2)
 			V2 *= np.sqrt(S2)
@@ -187,35 +297,43 @@ def emuAlgorithm(G, E, f, d, M, N, e, K, rng, run):
 
 			# Stabilization step
 			if E is None:
-				U, S, V = memorySVD(G, U, V, f, None, N, e, batch, power, rng)
+				U, S, V = memorySVD(G, U, V, f, None, N, e, b, p, rng)
 			else:
 				shared.centerAccel(G, E, U, V, f)
-				U, S, V = randomizedSVD(E, e, power, rng)
+				U, S, V = randomizedSVD(E, e, p, rng)
 			U, V = signFlip(U, V)
 			U *= np.sqrt(S)
 			V *= np.sqrt(S)	
 
 			# Break iterative update if converged
 			rmseU = shared.rmse(U, U_pre)
-			print(f"({it})\tRMSE = {rmseU:.8f}\t({time() - ts:.1f}s)")
-			if rmseU < tole:
+			print(f"({it})\tRMSE = {rmseU:.7f}\t({time() - ts:.1f}s)")
+			if rmseU < run["tole"]:
 				print("EM-PCA has converged.")
-				converged = True
+				conv = True
 				break
-			if it == iter:
+			if it == run["iter"]:
 				print("EM-PCA did not converge!")
-				converged = False
+				conv = False
 			memoryview(U_pre.ravel())[:] = memoryview(U.ravel())
 			ts = time()
-		del U1, U2, U_pre, V1, V2, S1, S2
+		del U1, U2, V1, V2, S1, S2, U_pre
 
 		# Estimating final SVD
 		print(f"Extracting {K} eigenvector(s).")
 		if E is None:
-			U, S, V = memorySVD(G, U, V, f, d, N, K, batch, power, rng)
+			U, S, V = memorySVD(G, U, V, f, d, N, K, b, p, rng)
 		else:
 			shared.standardAccel(G, E, U, V, f, d)
-			U, S, V = randomizedSVD(E, K, power, rng)
+			U, S, V = randomizedSVD(E, K, p, rng)
 		U, V = signFlip(U, V)
-		return U, S, V, it, converged
-	
+
+		# Create output structure
+		res = {
+			"U":U,
+			"S":S,
+			"V":V,
+			"iter":it,
+			"conv":conv
+		}
+		return res

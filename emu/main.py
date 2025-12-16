@@ -14,30 +14,28 @@ import sys
 from datetime import datetime
 from time import time
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 # Argparse
 parser = argparse.ArgumentParser(prog="emu")
 parser.add_argument("--version", action="version", \
 	version=f"{VERSION}")
-parser.add_argument("-b", "--bfile", metavar="FILE-PREFIX",
+parser.add_argument("-b", "--bfile", metavar="PREFIX",
 	help="Prefix for PLINK files (.bed, .bim, .fam)")
 parser.add_argument("-e", "--eig", metavar="INT", type=int,
 	help="Number of eigenvectors to use in iterative estimation")
 parser.add_argument("-t", "--threads", metavar="INT", type=int, default=1,
 	help="Number of threads")
-parser.add_argument("-f", "--maf", metavar="FLOAT", type=float,
-	help="Threshold for minor allele frequencies")
-parser.add_argument("-s", "--selection", action="store_true",
-	help="Perform PC-based selection scan (Galinsky et al. 2016)")
 parser.add_argument("-o", "--out", metavar="OUTPUT", default="emu",
 	help="Prefix output name",)
-parser.add_argument("-m", "--mem", action="store_true",
+parser.add_argument("--mem", action="store_true",
 	help="Memory-efficient variant")
+parser.add_argument("--selection", action="store_true",
+	help="Perform PC-based selection scan (Galinsky et al. 2016)")
 parser.add_argument("--iter", metavar="INT", type=int, default=100,
 	help="Maximum iterations in estimation of individual allele frequencies (100)")
 parser.add_argument("--tole", metavar="FLOAT", type=float, default=1e-5,
-	help="Tolerance in update for individual allele frequencies (1e-5)")
+	help="Tolerance in update for loadings (1e-5)")
 parser.add_argument("--power", metavar="INT", type=int, default=11,
 	help="Number of power iterations in randomized SVD (11)")
 parser.add_argument("--batch", metavar="INT", type=int, default=8192,
@@ -50,7 +48,8 @@ parser.add_argument("--loadings", action="store_true",
 	help="Save SNP loadings")
 parser.add_argument("--raw", action="store_true",
 	help="Raw output without '*.fam' info")
-
+parser.add_argument("--noise", metavar="FLOAT", type=float,
+	help="Inject Gaussian noise in frequency initialization (SD)")
 
 
 ##### EMU main caller #####
@@ -75,6 +74,8 @@ def main():
 	assert args.power > 1, "Please select a valid number of power iterations!"
 	if args.eig_out is not None:
 		assert args.eig_out > 1, "Please select a valid number of output eigenvectors!"
+	if args.noise is not None:
+		assert args.noise > 0.0, "Please provide a valid standard deviation for noise injection!"
 	start = time()
 
 	# Create log-file of arguments
@@ -120,38 +121,32 @@ def main():
 	print(f"\rLoaded {N} samples and {M} SNPs.")
 
 	# Estimate allele frequencies
+	n = np.zeros(M, dtype=np.float32)
 	f = np.zeros(M, dtype=np.float32)
-	d = np.zeros(M, dtype=np.float32)
-	n = np.zeros(M, dtype=np.uint32)
-	shared.estimateF(G, f, d, n, N)
+	shared.estimateF(G, f, n, N)
 
 	# Check input
-	if np.allclose(n, np.full(M, N, dtype=np.uint32)):
+	assert (not np.allclose(np.max(f), 1.0)) or (not np.allclose(np.min(f), 0.0)), "Fixed SNPs in dataset!"
+	if np.allclose(n, np.full(M, 2*N, dtype=np.float32)):
 		print("No missingness in data!")
 		args.iter = 0
-	assert (not np.allclose(np.max(f), 1.0)) or (not np.allclose(np.min(f), 0.0)), \
-		"Fixed sites in dataset. Please perform MAF filtering!"
 	del n
 
 	# Run options dictionary
 	run = {
 		"iter":args.iter,
+		"seed":args.seed,
 		"tole":args.tole,
 		"batch":args.batch,
+		"noise":args.noise,
 		"power":args.power
 	}
 
 	# Perform EM-PCA
 	print(f"\nPerforming EMU using {args.eig} eigenvector(s).")
-	rng = np.random.default_rng(args.seed)
-	if args.mem:
-		print("Using memory-efficient variant of EMU.")
-		U, S, V, it, converged = functions.emuAlgorithm(G, None, f, d, M, N, args.eig, K, rng, run)
-	else:
-		E = np.zeros((M, N), dtype=np.float32)
-		U, S, V, it, converged = functions.emuAlgorithm(G, E, f, d, M, N, args.eig, K, rng, run)
-		del E
-	del G, f, d
+	E = None if args.mem else np.zeros((M, N), dtype=np.float32)
+	res = functions.emuAlgorithm(G, E, f, N, args.eig, K, run)
+	del G, E
 
 	# Print elapsed time for estimation
 	t_tot = time()-start
@@ -161,36 +156,33 @@ def main():
 
 	# Save matrices
 	if args.raw:
-		np.savetxt(f"{args.out}.eigvecs", V, fmt="%.7f")
+		np.savetxt(f"{args.out}.eigvecs", res["V"], fmt="%.7f")
 	else:
 		F = np.loadtxt(f"{args.bfile}.fam", usecols=[0,1], dtype=np.str_)
-		h = ["#FID", "IID"] + [f"PC{k}" for k in range(1, K+1)]
-		V = np.hstack((F, np.round(V, 7)))
-		np.savetxt(f"{args.out}.eigvecs", V, fmt="%s", delimiter="\t", header="\t".join(h), comments="")
+		hdr = ["#FID", "IID"] + [f"PC{k}" for k in range(1, K + 1)]
+		res["V"] = np.hstack((F, np.round(res["V"], 7)))
+		np.savetxt(f"{args.out}.eigvecs", res["V"], fmt="%s", delimiter="\t", header="\t".join(hdr), comments="")
+	np.savetxt(f"{args.out}.eigvals", (res["S"]**2)/float(M), fmt="%.7f")
 	print(f"Saved eigenvector(s) as {args.out}.eigvecs")
-	np.savetxt(f"{args.out}.eigvals", (S**2)/float(M), fmt="%.7f")
 	print(f"Saved eigenvalue(s) as {args.out}.eigvals")
-	del V, S
 
-	# Save loadings
+	# Save SNP loadings
 	if args.loadings:
-		np.savetxt(f"{args.out}.loadings", U, fmt="%.7f")
+		np.savetxt(f"{args.out}.loadings", res["U"], fmt="%.7f")
 		print(f"Saved SNP loadings as {args.out}.loadings")
 
 	# Perform genome-wide selection scan
 	if args.selection:
-		Dsquared = np.zeros((M, K), dtype=np.float32)
-		shared.galinskyScan(U, Dsquared)
-		np.savetxt(f"{args.out}.selection", Dsquared, fmt="%.7f")
+		D = np.zeros((M, K), dtype=np.float32)
+		shared.galinskyScan(res["U"], D)
+		np.savetxt(f"{args.out}.selection", D, fmt="%.7f")
 		print(f"Saved test statistics as {args.out}.selection")
-		del Dsquared
-	del U
 
 	# Write output info to log-file
 	with open(f"{args.out}.log", "a") as log:
 		if args.iter > 0:
-			if converged:
-				log.write(f"\nEM-PCA converged in {it} iterations.\n")
+			if res["conv"]:
+				log.write(f"\nEM-PCA converged in {res["iter"]} iterations.\n")
 			else:
 				log.write("\nEM-PCA did not converge!\n")
 		log.write(f"Total elapsed time: {t_min}m{t_sec}s\n")

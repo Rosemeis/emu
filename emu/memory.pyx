@@ -27,7 +27,7 @@ cdef inline f32 _innerE(
 
 # Extract and center chunk (frequencies) for randomized SVD
 cpdef void memCen(
-		const u8[:,::1] G, f32[:,::1] X, f32[::1] f, const Py_ssize_t M_w
+		const u8[:,::1] G, f32[:,::1] X, const f32[::1] f, const Py_ssize_t M_w
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = X.shape[0]
@@ -52,9 +52,37 @@ cpdef void memCen(
 				if i == N:
 					break
 
+# Extract and center chunk (frequencies with noise injection) for randomized SVD
+cpdef void memNoise(
+		const u8[:,::1] G, f32[:,::1] X, const f32[::1] f, const f32[::1] n, const Py_ssize_t M_w
+	) noexcept nogil:
+	cdef:
+		Py_ssize_t M = X.shape[0]
+		Py_ssize_t N = X.shape[1]
+		Py_ssize_t B = G.shape[1]
+		size_t b, i, j, l, bytepart
+		u8[4] recode = [2, 9, 1, 0]
+		u8 mask = 3
+		u8 g, byte
+		f32 fl, nl
+	for j in prange(M, schedule='guided'):
+		i = 0
+		l = M_w + j
+		fl = f[l]
+		nl = n[l]
+		for b in range(B):
+			byte = G[l,b]
+			for bytepart in range(4):
+				g = recode[byte & mask]
+				X[j,i] = <f32>g - 2.0*fl if g != 9 else nl
+				byte = byte >> 2 # Right shift 2 bits
+				i = i + 1
+				if i == N:
+					break
+
 # Extract and center chunk (SVD) for randomized SVD
 cpdef void memCenSVD(
-		const u8[:,::1] G, f32[:,::1] U, const f32[:,::1] V, f32[:,::1] X, f32[::1] f, const Py_ssize_t M_w
+		const u8[:,::1] G, f32[:,::1] U, const f32[:,::1] V, f32[:,::1] X, const f32[::1] f, const Py_ssize_t M_w
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = X.shape[0]
@@ -84,7 +112,7 @@ cpdef void memCenSVD(
 
 # Extract and standardize chunk (frequencies) for randomized SVD
 cpdef void memFin(
-		const u8[:,::1] G, f32[:,::1] X, f32[::1] f, f32[::1] d, const Py_ssize_t M_w
+		const u8[:,::1] G, f32[:,::1] X, const f32[::1] f, const f32[::1] d, const Py_ssize_t M_w
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = X.shape[0]
@@ -112,7 +140,8 @@ cpdef void memFin(
 
 # Extract and standardize chunk (SVD) for randomized SVD
 cpdef void memFinSVD(
-		const u8[:,::1] G, f32[:,::1] U, const f32[:,::1] V, f32[:,::1] X, f32[::1] f, f32[::1] d, const Py_ssize_t M_w
+		const u8[:,::1] G, f32[:,::1] U, const f32[:,::1] V, f32[:,::1] X, const f32[::1] f, const f32[::1] d, \
+		const Py_ssize_t M_w
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = X.shape[0]

@@ -56,7 +56,7 @@ cdef inline void _updateAlpha(
 
 # Estimate population allele frequencies
 cpdef void estimateF(
-		const u8[:,::1] G, f32[::1] f, f32[::1] d, u32[::1] n, const Py_ssize_t N
+		const u8[:,::1] G, f32[::1] f, f32[::1] n, const Py_ssize_t N
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = G.shape[0]
@@ -73,21 +73,16 @@ cpdef void estimateF(
 				g = recode[byte & mask]
 				if g != 9:
 					f[j] += <f32>g
-					n[j] += 1
+					n[j] += 2.0
 				byte = byte >> 2 # Right shift 2 bits
 				i = i + 1
 				if i == N:
 					break
-		if n[j] > 0:
-			f[j] /= <f32>(2*n[j])
-			if (f[j] > 0.0) and (f[j] < 1.0):
-				d[j] = 1.0/sqrtf(2.0*f[j]*(1.0 - f[j]))
-		else:
-			f[j] = 0.0
+		f[j] = f[j]/n[j] if n[j] > 0.0 else 0.0
 
 # Initialize and standardize E
 cpdef void standardInit(
-		const u8[:,::1] G, f32[:,::1] E, f32[::1] f, f32[::1] d
+		const u8[:,::1] G, f32[:,::1] E, const f32[::1] f, const f32[::1] d
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = E.shape[0]
@@ -114,7 +109,7 @@ cpdef void standardInit(
 
 # Initialize and center E
 cpdef void centerInit(
-		const u8[:,::1] G, f32[:,::1] E, f32[::1] f
+		const u8[:,::1] G, f32[:,::1] E, const f32[::1] f
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = E.shape[0]
@@ -138,9 +133,36 @@ cpdef void centerInit(
 				if i == N:
 					break
 
+# Initialize and center E with noise injection
+cpdef void centerNoise(
+		const u8[:,::1] G, f32[:,::1] E, const f32[::1] f, const f32[::1] n
+	) noexcept nogil:
+	cdef:
+		Py_ssize_t M = E.shape[0]
+		Py_ssize_t N = E.shape[1]
+		Py_ssize_t B = G.shape[1]
+		size_t b, i, j, bytepart
+		u8[4] recode = [2, 9, 1, 0]
+		u8 mask = 3
+		u8 g, byte
+		f32 fj, nj
+	for j in prange(M, schedule='guided'):
+		i = 0
+		fj = f[j]
+		nj = n[j]
+		for b in range(B):
+			byte = G[j,b]
+			for bytepart in range(4):
+				g = recode[byte & mask]
+				E[j,i] = <f32>g - 2.0*fj if g != 9 else nj
+				byte = byte >> 2 # Right shift 2 bits
+				i = i + 1
+				if i == N:
+					break
+
 # Standardize E in acceleration scheme
 cpdef void standardAccel(
-		const u8[:,::1] G, f32[:,::1] E, f32[:,::1] U, f32[:,::1] V, f32[::1] f, f32[::1] d
+		const u8[:,::1] G, f32[:,::1] E, f32[:,::1] U, f32[:,::1] V, const f32[::1] f, const f32[::1] d
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = E.shape[0]
@@ -170,7 +192,7 @@ cpdef void standardAccel(
 
 # Center E in acceleration scheme
 cpdef void centerAccel(
-		const u8[:,::1] G, f32[:,::1] E, f32[:,::1] U, f32[:,::1] V, f32[::1] f
+		const u8[:,::1] G, f32[:,::1] E, f32[:,::1] U, f32[:,::1] V, const f32[::1] f
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = E.shape[0]
@@ -210,34 +232,38 @@ cpdef void alphaStep(
 
 # Root-mean squared error
 cpdef f32 rmse(
-		const f32[:,::1] A, const f32[:,::1] B
+		f32[:,::1] A, f32[:,::1] B
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = A.shape[0]
 		Py_ssize_t K = A.shape[1]
-		size_t j, k
+		Py_ssize_t I = M*K
+		size_t i
 		f32 res = 0.0
-	for j in prange(M, schedule='guided'):
-		for k in range(K):
-			res += (A[j,k] - B[j,k])*(A[j,k] - B[j,k])
-	return sqrtf(res/(<f32>(M*K)))
+		f32* a = &A[0,0]
+		f32* b = &B[0,0]
+	for i in range(I):
+		res += (a[i] - b[i])*(a[i] - b[i])
+	return sqrtf(res/<f32>I)
 
 # Selection scan
 cpdef void galinskyScan(
-		const f32[:,::1] U, f32[:,::1] Dsquared
+		f32[:,::1] U, f32[:,::1] D
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = U.shape[0]
 		Py_ssize_t K = U.shape[1]
-		size_t j, k
+		Py_ssize_t I = M*K
+		size_t i
 		f32 m = <f32>M
-	for j in prange(M, schedule='guided'):
-		for k in range(K):
-			Dsquared[j,k] = (U[j,k]*U[j,k])*m
+		f32* u = &U[0,0]
+		f32* d = &D[0,0]
+	for i in range(I):
+		d[i] = (u[i]*u[i])*m
 
 # Condense an expanded genotype matrix
 cpdef void condenseGeno(
-		u8[:,::1] G, const u8[:,::1] X
+		u8[:,::1] G, u8[:,::1] X
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = X.shape[0]
