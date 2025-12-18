@@ -182,7 +182,7 @@ def main():
 	with open(f"{args.out}.log", "a") as log:
 		if args.iter > 0:
 			if res["conv"]:
-				log.write(f"\nEM-PCA converged in {res["iter"]} iterations.\n")
+				log.write(f"\nEM-PCA converged in {res['iter']} iterations.\n")
 			else:
 				log.write("\nEM-PCA did not converge!\n")
 		log.write(f"Total elapsed time: {t_min}m{t_sec}s\n")
